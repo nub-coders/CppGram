@@ -11,11 +11,36 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(CPPGRAM_BUILD_TESTS      "Build unit tests"   ON)
 option(CPPGRAM_BUILD_EXAMPLES   "Build examples"     ON)
 option(CPPGRAM_BUILD_BENCHMARKS "Build benchmarks"   OFF)
-option(CPPGRAM_USE_TDLIB        "Link real TDLib"    OFF) # OFF until Phase 2
+
+set(CPPGRAM_TDLIB_TAG "v1.8.0" CACHE STRING
+    "TDLib git tag or commit hash (pin to a release for reproducible builds)")
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-# ---- Core library --------------------------------------------------------
+# ---- TDLib via FetchContent ------------------------------------------------
+include(FetchContent)
+
+set(TD_ENABLE_JNI    OFF CACHE BOOL "" FORCE)
+set(TD_ENABLE_DOTNET OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+    td
+    GIT_REPOSITORY https://github.com/tdlib/td.git
+    GIT_TAG        ${CPPGRAM_TDLIB_TAG}
+    GIT_SHALLOW    TRUE
+)
+
+message(STATUS "Fetching TDLib ${CPPGRAM_TDLIB_TAG} (this may take a while on first build)...")
+FetchContent_MakeAvailable(td)
+
+# ---- Dependencies ----------------------------------------------------------
+find_package(Threads REQUIRED)
+find_package(OpenSSL REQUIRED)
+find_package(ZLIB    REQUIRED)
+
+find_package(SQLite3 QUIET)
+
+# ---- Core library ----------------------------------------------------------
 add_library(cppgram)
 add_library(CppGram::cppgram ALIAS cppgram)
 
@@ -25,24 +50,20 @@ target_include_directories(cppgram
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 target_sources(cppgram PRIVATE
-    src/core/log.cpp
-    src/core/client.cpp
-    src/entities/entities.cpp)
+    src/backend/log.cpp
+    src/backend/client.cpp
+    src/core/entities.cpp
+    src/core/filters.cpp)
 
-# SQLite (Phase 3 storage) — vendored or system
-find_package(SQLite3 QUIET)
+target_link_libraries(cppgram
+    PUBLIC  Threads::Threads
+    PRIVATE Td::TdStatic)
+
+target_compile_definitions(cppgram PRIVATE CPPGRAM_HAVE_TDLIB=1)
+
 if(SQLite3_FOUND)
     target_link_libraries(cppgram PRIVATE SQLite::SQLite3)
     target_compile_definitions(cppgram PRIVATE CPPGRAM_HAVE_SQLITE3=1)
-endif()
-
-find_package(Threads REQUIRED)
-target_link_libraries(cppgram PUBLIC Threads::Threads)
-
-if(CPPGRAM_USE_TDLIB)
-    find_package(TDLib REQUIRED)               # cmake/FindTDLib.cmake (Phase 2)
-    target_link_libraries(cppgram PRIVATE Td::TdStatic)
-    target_compile_definitions(cppgram PRIVATE CPPGRAM_HAVE_TDLIB=1)
 endif()
 
 if(MSVC)
@@ -51,7 +72,7 @@ else()
     target_compile_options(cppgram PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-# ---- Subdirectories ------------------------------------------------------
+# ---- Subdirectories --------------------------------------------------------
 if(CPPGRAM_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
