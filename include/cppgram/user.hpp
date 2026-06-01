@@ -4,7 +4,7 @@
 #include "cppgram/types.hpp"
 
 namespace cppgram {
-class ClientImpl;
+class IBackend;
 
 class User {
 public:
@@ -16,11 +16,14 @@ public:
     bool        is_bot{false};
     bool        is_premium{false};
     bool        is_verified{false};
+    bool        is_scam{false};
+    bool        is_fake{false};
 
     std::string full_name() const {
         return last_name.empty() ? first_name : first_name + " " + last_name;
     }
-    // Internal: lets entity methods reach the client without owning it.
-    std::weak_ptr<ClientImpl> _client;
+
+    std::weak_ptr<IBackend> _client;
 };
+
 } // namespace cppgram

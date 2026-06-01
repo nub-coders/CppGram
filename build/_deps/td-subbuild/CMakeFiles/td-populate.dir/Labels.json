@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/home/deblomper/CppGram/build/_deps/td-subbuild/CMakeFiles/td-populate"
+		},
+		{
+			"file" : "/home/deblomper/CppGram/build/_deps/td-subbuild/CMakeFiles/td-populate.rule"
+		},
+		{
+			"file" : "/home/deblomper/CppGram/build/_deps/td-subbuild/CMakeFiles/td-populate-complete.rule"
+		},
+		{
+			"file" : "/home/deblomper/CppGram/build/_deps/td-subbuild/td-populate-prefix/src/td-populate-stamp/td-populate-build.rule"
+		},
+		{
+			"file" : "/home/deblomper/CppGram/build/_deps/td-subbuild/td-populate-prefix/src/td-populate-stamp/td-populate-configure.rule"
+		},
+		{
+			"file" : "/home/deblomper/CppGram/build/_deps/td-subbuild/td-populate-prefix/src/td-populate-stamp/td-populate-download.rule"
+		},
+		{
+			"file" : "/home/deblomper/CppGram/build/_deps/td-subbuild/td-populate-prefix/src/td-populate-stamp/td-populate-install.rule"
+		},
+		{
+			"file" : "/home/deblomper/CppGram/build/_deps/td-subbuild/td-populate-prefix/src/td-populate-stamp/td-populate-mkdir.rule"
+		},
+		{
+			"file" : "/home/deblomper/CppGram/build/_deps/td-subbuild/td-populate-prefix/src/td-populate-stamp/td-populate-patch.rule"
+		},
+		{
+			"file" : "/home/deblomper/CppGram/build/_deps/td-subbuild/td-populate-prefix/src/td-populate-stamp/td-populate-test.rule"
+		},
+		{
+			"file" : "/home/deblomper/CppGram/build/_deps/td-subbuild/td-populate-prefix/src/td-populate-stamp/td-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"td-populate"
+		],
+		"name" : "td-populate"
+	}
+}

@@ -1,334 +1,325 @@
-CppGram
+# CppGram
 
-A modern, high-performance Telegram MTProto client framework for C++20 built on top of TDLib.
+A modern, high-performance Telegram client framework for C++20 built on top of TDLib.
 
-CppGram aims to bring the developer experience of Pyrogram and Telethon to the C++ ecosystem while maintaining the performance, type safety, and scalability of modern C++.
+CppGram brings the developer experience of Pyrogram and Telethon to the C++ ecosystem while maintaining performance, type safety, and scalability.
 
-Features
-Authentication
-User account login
-Bot account login
-OTP verification
-Two-factor authentication (2FA)
-Persistent sessions
-Automatic session restoration
-Messaging
-Send messages
-Edit messages
-Delete messages
-Reply to messages
-Forward messages
-Reactions
-Chats
-Private chats
-Groups
-Supergroups
-Channels
-Media
-Photos
-Videos
-Documents
-Audio
-Voice messages
-Animations
-File downloads
-Events
-New messages
-Edited messages
-Deleted messages
-Reactions
-Member updates
-Chat updates
-Developer Experience
-Pyrogram-inspired API
-Modern C++20
-Async support
-Event-driven architecture
-Cross-platform
-Plugin system
-Comprehensive documentation
-Why CppGram?
+## Features
 
-Most Telegram client libraries are written in Python, JavaScript, or Go.
+### Authentication
+- User account login with phone number
+- Bot account login with BotFather token
+- OTP verification via callback
+- Two-factor authentication (2FA)
+- Automatic session persistence via TDLib
 
-CppGram provides:
+### Messaging
+- Send, edit, delete, forward messages
+- Reply to messages
+- Pin / unpin messages
+- Reactions (emoji)
+- Message search (global and per-chat)
 
-Native performance
-Low memory usage
-Type safety
-Easy deployment
-Modern C++ API
-Full Telegram account support
+### Media
+- Send photos, videos, documents, audio, voice notes, video notes, animations, stickers
+- Media metadata extraction (dimensions, duration, file size, thumbnails)
+- File download with progress callback
 
-Inspired by:
+### Rich Messages
+- Polls (regular and quiz mode)
+- Dice
+- Contacts
+- Locations (including live location)
+- Venues
 
-Pyrogram
-Telethon
-TDLib
-Architecture
+### Inline Keyboards & Callbacks
+- Inline keyboard buttons (callback data, URLs, switch inline)
+- Reply keyboards
+- Remove keyboard / force reply
+- Callback query handling and answering
+
+### Chat Management
+- Create groups, supergroups, channels
+- Set title, description, photo, permissions
+- Ban, unban, restrict, promote members
+- Get member list, count, administrators
+- Generate invite links
+- Join / leave chats
+
+### User Operations
+- Get user info and profile
+- Block / unblock users
+
+### Events
+- New messages (`onMessage`)
+- Edited messages (`onEditedMessage`)
+- Deleted messages (`onDeletedMessages`)
+- Callback queries (`onCallbackQuery`)
+
+### Filters
+- Chat type: `privateChat()`, `group()`, `channel()`
+- Content: `text()`, `media()`, `photo()`, `video()`, `document()`, `audio()`, `voice()`, `sticker()`, `animation()`, `pollMsg()`, `locationMsg()`, `contactMsg()`, `dice()`
+- Message state: `incoming()`, `outgoing()`, `reply()`, `forwarded()`, `bot()`
+- Targeting: `command("name")`, `chatId(id)`, `userId(id)`, `regex("pattern")`
+- **Composable**: `Filters::text() && Filters::privateChat() && !Filters::bot()`
+
+### Developer Experience
+- Pyrogram-inspired API
+- Modern C++20
+- Composable filter system with `&&`, `||`, `!`
+- Entity methods (`msg.reply()`, `msg.pin()`, `chat.banMember()`)
+- Builder-style keyboard construction
+- Event-driven architecture
+- Cross-platform (Linux, macOS, Windows)
+
+## Architecture
+
+```
 Application
       │
       ▼
-CppGram API
+CppGram API  (Client)
       │
       ▼
-Event Dispatcher
+Event Dispatcher  (handlers, filters)
       │
       ▼
-TDLib Adapter
+TDLib Adapter  (async request/response)
       │
       ▼
 TDLib
       │
       ▼
 Telegram Servers
+```
 
-CppGram abstracts TDLib into a clean, user-friendly API while maintaining access to Telegram's full capabilities.
+## Installation
 
-Installation
-Requirements
-C++20 compiler
-CMake 3.25+
-TDLib
-SQLite3
-OpenSSL
-Clone Repository
+### Requirements
+- C++20 compiler (GCC 12+, Clang 15+, MSVC 2022+)
+- CMake 3.21+
+- OpenSSL
+- zlib
+- SQLite3 (optional)
+
+### Build
+```bash
 git clone https://github.com/your-org/cppgram.git
 cd cppgram
-Build
-mkdir build
-cd build
-
+mkdir build && cd build
 cmake ..
 cmake --build . --config Release
-Telegram API Credentials
+```
 
-Before using CppGram, create Telegram API credentials.
+TDLib is fetched automatically via CMake FetchContent (pinned to a specific version).
 
-Visit:
+### Telegram API Credentials
 
-my.telegram.org
+1. Visit [my.telegram.org](https://my.telegram.org)
+2. Log in and create an application
+3. Note your `api_id` and `api_hash`
 
-Log in with your Telegram account.
-Create an application.
-Obtain:
-api_id
-api_hash
-Quick Start
-User Login
+## Quick Start
+
+### Bot Login
+```cpp
 #include <cppgram/client.hpp>
 
 using namespace cppgram;
 
-int main()
-{
-    Client client(
-        API_ID,
-        "API_HASH"
-    );
-
-    client.login("+1234567890");
-
+int main() {
+    Client client(API_ID, "API_HASH");
+    client.loginBot("BOT_TOKEN");
     client.run();
 }
-Bot Login
-#include <cppgram/client.hpp>
+```
 
-using namespace cppgram;
+### User Login
+```cpp
+Client client(API_ID, "API_HASH");
 
-int main()
-{
-    Client client;
-
-    client.loginBot(
-        "BOT_TOKEN"
-    );
-
-    client.run();
-}
-Send a Message
-Client client(api_id, api_hash);
-
-client.login(phone);
-
-client.sendMessage(
-    "username",
-    "Hello from CppGram!"
-);
-Message Handlers
-client.onMessage(
-    [](Message msg)
-    {
-        std::cout
-            << msg.sender.username
-            << ": "
-            << msg.text
-            << std::endl;
+client.login("+1234567890",
+    []() -> std::string {
+        std::string code;
+        std::cout << "Enter OTP: ";
+        std::cin >> code;
+        return code;
+    },
+    []() -> std::string {
+        std::string pw;
+        std::cout << "Enter 2FA password: ";
+        std::cin >> pw;
+        return pw;
     }
 );
-Command Filters
+```
+
+### Message Handlers
+```cpp
+// Handle all text messages
+client.onMessage(
+    Filters::text(),
+    [](Message msg) {
+        std::cout << msg.sender.username << ": " << msg.text << "\n";
+    }
+);
+
+// Handle commands
 client.onMessage(
     Filters::command("ping"),
-    [](Message msg)
-    {
+    [](Message msg) {
         msg.reply("pong");
     }
 );
-Chat Filters
+
+// Compose filters
 client.onMessage(
-    Filters::privateChat(),
-    [](Message msg)
-    {
-        std::cout
-            << "Private message received"
-            << std::endl;
+    Filters::text() && Filters::privateChat() && !Filters::bot(),
+    [](Message msg) {
+        msg.reply("Hello, " + msg.sender.first_name + "!");
     }
 );
-Media Upload
-client.sendPhoto(
-    chat_id,
-    "image.jpg",
-    "My Photo"
+```
+
+### Inline Keyboards
+```cpp
+client.onMessage(
+    Filters::command("menu"),
+    [](Message msg) {
+        InlineKeyboard kb;
+        kb.addButton(0, InlineKeyboardButton::callback("Option A", "a"));
+        kb.addButton(0, InlineKeyboardButton::callback("Option B", "b"));
+        kb.addButton(1, InlineKeyboardButton::link("Website", "https://example.com"));
+        msg.reply("Choose:", kb);
+    }
 );
-Media Download
-client.downloadFile(
-    file_id,
-    "./downloads"
-);
-Async API
-auto message =
-    co_await client.sendMessage(
-        chat_id,
-        "Hello Async World"
-    );
-Session Storage
 
-Sessions are automatically persisted.
+client.onCallbackQuery([](CallbackQuery q) {
+    q.answer("You chose: " + q.data);
+});
+```
 
-Stored data includes:
+### Send Media
+```cpp
+client.sendPhoto(chat_id, InputFile::local("image.jpg"), "My photo");
+client.sendDocument(chat_id, InputFile::local("report.pdf"), "Q4 Report");
+client.sendVideo(chat_id, InputFile::local("clip.mp4"));
+client.sendSticker(chat_id, InputFile::local("sticker.webp"));
+```
 
-Session ID
-User ID
-Authorization State
-Database Path
-Encryption Key
-Update State
+### Polls
+```cpp
+client.sendPoll(chat_id, "Favorite language?", {"C++", "Rust", "Python"});
 
-Users remain logged in across application restarts.
+// Quiz mode
+PollConfig quiz;
+quiz.type = PollType::Quiz;
+quiz.correct_option_id = 0;
+quiz.explanation = "C++ is the best!";
+client.sendPoll(chat_id, "What is CppGram written in?", {"C++", "Python"}, quiz);
+```
 
-Example Echo Bot
-#include <cppgram/client.hpp>
+### Chat Management
+```cpp
+auto chat = client.getChat(chat_id);
 
-using namespace cppgram;
+chat.setTitle("New Title");
+chat.setDescription("Updated description");
+chat.banMember(user_id);
 
-int main()
-{
-    Client client(
-        API_ID,
-        API_HASH
-    );
+ChatAdminRights rights;
+rights.can_delete_messages = true;
+rights.can_pin_messages = true;
+chat.promoteMember(user_id, rights);
+```
 
-    client.login(
-        "+1234567890"
-    );
-
-    client.onMessage(
-        [](Message msg)
-        {
-            msg.reply(msg.text);
-        }
-    );
-
-    client.run();
-}
-Project Structure
+## Project Structure
+```
 cppgram/
-
-├── include/
-│   └── cppgram/
-│       ├── client.hpp
-│       ├── message.hpp
-│       ├── chat.hpp
-│       ├── user.hpp
-│       ├── filters.hpp
-│       ├── handlers.hpp
-│       ├── session.hpp
-│       ├── errors.hpp
-│       └── types.hpp
-│
+├── include/cppgram/
+│   ├── client.hpp          # Main client class
+│   ├── message.hpp         # Message entity
+│   ├── chat.hpp            # Chat entity + ChatMember
+│   ├── user.hpp            # User entity
+│   ├── types.hpp           # Core types, enums, structs
+│   ├── media.hpp           # Media types (Photo, Video, etc.)
+│   ├── keyboard.hpp        # Inline/reply keyboard types
+│   ├── callback_query.hpp  # Callback query type
+│   ├── filters.hpp         # MessageFilter + Filters namespace
+│   ├── handlers.hpp        # Handler structs
+│   ├── i_backend.hpp       # Backend interface
+│   ├── errors.hpp          # Exception hierarchy
+│   ├── result.hpp          # Result<T> type
+│   └── log.hpp             # Logger
 ├── src/
-│   ├── auth/
-│   ├── client/
-│   ├── tdlib/
-│   ├── updates/
-│   ├── handlers/
-│   ├── storage/
-│   ├── entities/
-│   └── utils/
-│
+│   ├── backend/
+│   │   ├── client.cpp      # ClientImpl (TDLib integration)
+│   │   ├── tdlib_adapter.hpp
+│   │   ├── td_conversions.hpp
+│   │   └── log.cpp
+│   └── core/
+│       ├── entities.cpp    # Entity methods
+│       └── filters.cpp     # Filter implementations
 ├── tests/
 ├── examples/
-├── docs/
-├── benchmarks/
 └── CMakeLists.txt
-Roadmap
-Version 0.1
-TDLib integration
-Authentication
-Messaging
-Event handling
-Session persistence
-Version 0.2
-Media support
-Reactions
-Chat management
-Improved filters
-Version 0.3
-Async coroutines
-Plugin system
-Performance optimizations
-Version 1.0
-Stable API
-Full documentation
-Production-ready release
-Performance Goals
-Metric	Target
-Startup Time	< 1s
-Memory Usage	< 50 MB
-Update Latency	< 10 ms
-Concurrent Handlers	1000+
-Message Throughput	10,000+/min
-Contributing
+```
+
+## Roadmap
+
+### Version 0.1 (current)
+- [x] TDLib integration
+- [x] Authentication (user + bot)
+- [x] Text messaging (send, edit, delete, forward, pin)
+- [x] Media messaging (photo, video, document, audio, voice, sticker, animation)
+- [x] Rich messages (polls, dice, contacts, locations, venues)
+- [x] Inline keyboards + callback queries
+- [x] Chat management (create, permissions, ban/restrict/promote)
+- [x] Composable filter system
+- [x] Event handlers (messages, edits, deletes, callbacks)
+- [x] File download
+- [x] Message search
+
+### Version 0.2
+- [ ] Async coroutines (C++20 co_await)
+- [ ] Session storage with SQLite
+- [ ] Profile photo management
+- [ ] Scheduled messages
+- [ ] Message formatting (bold, italic, code, links)
+
+### Version 0.3
+- [ ] Plugin system
+- [ ] Forum/topic support
+- [ ] Stories
+- [ ] Performance optimizations
+
+### Version 1.0
+- [ ] Stable API
+- [ ] Full documentation
+- [ ] Production-ready release
+
+## Contributing
 
 Contributions are welcome.
 
-Areas of interest:
-
-TDLib integrations
-Performance improvements
-Documentation
-Testing
-Platform support
-
 Before contributing:
-
-clang-format
-ctest
+- Run `clang-format` on your code
+- Run `ctest` to verify tests pass
 
 All pull requests must pass CI checks.
 
-License
+## License
 
 MIT License
 
 Copyright (c) 2026 CppGram Contributors
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files to deal in the Software without restriction.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files to deal in the Software
+without restriction.
 
-Acknowledgements
-Telegram
-TDLib
-Pyrogram
-Telethon
-
-Built with ❤️ for modern C++ developers.
+## Acknowledgements
+- [Telegram](https://telegram.org)
+- [TDLib](https://github.com/tdlib/td)
+- [Pyrogram](https://github.com/pyrogram/pyrogram)
+- [Telethon](https://github.com/LonamiWebs/Telethon)
