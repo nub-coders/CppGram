@@ -250,6 +250,13 @@ public:
             auth_state = AuthState::WaitPhoneNumber;
             auth_cv_.notify_all();
             break;
+        case td_api::authorizationStateWaitEncryptionKey::ID: {
+            auth_state = AuthState::WaitPassword;
+            auth_cv_.notify_all();
+            CPPGRAM_INFO("auth", "handle_auth_state: sending checkDatabaseEncryptionKey(empty)");
+            td.send(td_api::make_object<td_api::checkDatabaseEncryptionKey>(""), {});
+            break;
+        }
         case td_api::authorizationStateWaitCode::ID: {
             auth_state = AuthState::WaitCode;
             auth_cv_.notify_all();
