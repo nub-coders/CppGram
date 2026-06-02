@@ -108,6 +108,7 @@ int main() {
     auto me = client.getMe();
     std::cout << "Logged in as: " << me.full_name()
               << " (@" << me.username << ") [id: " << me.id << "]\n" << std::flush;
+    std::cout << "Bot is ready and registering handlers...\n" << std::flush;
 
     auto send_local_media = [](Message msg,
                                const std::string& path,
@@ -944,7 +945,7 @@ int main() {
         }
     );
 
-    std::cout << "Test bot is running. Send /start for commands. Ctrl+C to stop.\n";
+    std::cout << "Test bot is running. Send /start for commands. Ctrl+C to stop.\n" << std::flush;
     client.run();
 
     std::cout << "Bot stopped.\n";
