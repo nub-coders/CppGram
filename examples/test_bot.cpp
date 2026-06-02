@@ -102,13 +102,6 @@ int main() {
     std::string api_hash = hash_env ? hash_env : "b18441a1ff607e10a989891a5462e627";
 
     Client client(api_id, api_hash);
-    std::cout << "Attempting bot login...\n";
-    client.loginBot(token);
-
-    auto me = client.getMe();
-    std::cout << "Logged in as: " << me.full_name()
-              << " (@" << me.username << ") [id: " << me.id << "]\n" << std::flush;
-    std::cout << "Bot is ready and registering handlers...\n" << std::flush;
 
     auto send_local_media = [](Message msg,
                                const std::string& path,
@@ -128,6 +121,7 @@ int main() {
         client.sendMessage(chat_id, label + " downloaded to: " + path);
     };
 
+    auto register_handlers = [&]() {
     // ---- /start ----
     client.onMessage(
         Filters::command("start"),
@@ -944,6 +938,17 @@ int main() {
             }
         }
     );
+    };
+
+    register_handlers();
+    std::cout << "Handlers registered.\n" << std::flush;
+    std::cout << "Attempting bot login...\n" << std::flush;
+    client.loginBot(token);
+
+    auto me = client.getMe();
+    std::cout << "Logged in as: " << me.full_name()
+              << " (@" << me.username << ") [id: " << me.id << "]\n" << std::flush;
+    std::cout << "Bot is ready.\n" << std::flush;
 
     std::cout << "Test bot is running. Send /start for commands. Ctrl+C to stop.\n" << std::flush;
     client.run();

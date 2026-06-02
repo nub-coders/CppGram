@@ -399,16 +399,9 @@ public:
             auto& err = static_cast<const td_api::error&>(*obj);
             std::string msg = std::string(context) + ": " + err.message_ +
                               " (code " + std::to_string(err.code_) + ")";
-            if (err.code_ == 420) {
-                int seconds = 0;
-                auto pos = err.message_.find("FLOOD_WAIT_");
-                if (pos != std::string::npos) {
-                    try { seconds = std::stoi(err.message_.substr(pos + 11)); }
-                    catch (...) {}
-                }
-                throw FloodWaitError(seconds, msg);
-            }
-            throw RPCError(err.code_, msg);
+            Error parsed = Error::from_rpc(err.code_, err.message_);
+            parsed.message = msg;
+            parsed.raise();
         }
     }
 

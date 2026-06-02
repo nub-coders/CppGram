@@ -20,6 +20,14 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # ---- TDLib via FetchContent ------------------------------------------------
 include(FetchContent)
 
+set(CPPGRAM_MAIN_CXX_STANDARD "${CMAKE_CXX_STANDARD}")
+set(CPPGRAM_MAIN_CXX_STANDARD_REQUIRED "${CMAKE_CXX_STANDARD_REQUIRED}")
+set(CPPGRAM_MAIN_CXX_EXTENSIONS "${CMAKE_CXX_EXTENSIONS}")
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 set(TD_ENABLE_JNI    OFF CACHE BOOL "" FORCE)
 set(TD_ENABLE_DOTNET OFF CACHE BOOL "" FORCE)
 
@@ -32,6 +40,10 @@ FetchContent_Declare(
 
 message(STATUS "Fetching TDLib ${CPPGRAM_TDLIB_TAG} (this may take a while on first build)...")
 FetchContent_MakeAvailable(td)
+
+set(CMAKE_CXX_STANDARD "${CPPGRAM_MAIN_CXX_STANDARD}")
+set(CMAKE_CXX_STANDARD_REQUIRED "${CPPGRAM_MAIN_CXX_STANDARD_REQUIRED}")
+set(CMAKE_CXX_EXTENSIONS "${CPPGRAM_MAIN_CXX_EXTENSIONS}")
 
 # ---- Dependencies ----------------------------------------------------------
 find_package(Threads REQUIRED)
