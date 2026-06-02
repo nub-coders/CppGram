@@ -61,7 +61,7 @@ public:
 
     // ---- Initialization ----
     void init() {
-        td.set_update_handler([this](detail::TdLibAdapter::Object obj) {
+        td.set_update_handler([this](detail::Object obj) {
             process_update(std::move(obj));
         });
         td.start();
@@ -79,16 +79,23 @@ public:
     }
 
     void send_tdlib_parameters() {
-        auto params = td_api::make_object<td_api::setTdlibParameters>();
-        params->database_directory_   = "cppgram_data";
+        auto params = td_api::make_object<td_api::tdlibParameters>();
+        params->use_test_dc_ = false;
+        params->database_directory_ = "cppgram_data";
+        params->files_directory_ = "cppgram_data/files";
+        params->use_file_database_ = true;
+        params->use_chat_info_database_ = true;
         params->use_message_database_ = true;
-        params->use_secret_chats_     = false;
-        params->api_id_               = creds.api_id;
-        params->api_hash_             = creds.api_hash;
+        params->use_secret_chats_ = false;
+        params->api_id_ = creds.api_id;
+        params->api_hash_ = creds.api_hash;
         params->system_language_code_ = "en";
-        params->device_model_         = "CppGram";
-        params->application_version_  = "0.1.0";
-        td.send(std::move(params), {});
+        params->device_model_ = "CppGram";
+        params->system_version_ = "Linux";
+        params->application_version_ = "0.1.0";
+        params->enable_storage_optimizer_ = true;
+        params->ignore_file_names_ = false;
+        td.send(td_api::make_object<td_api::setTdlibParameters>(std::move(params)), {});
     }
 
     // ---- Chat type lookup helper ----
@@ -106,12 +113,11 @@ public:
                          const char* ctx) {
         auto req = td_api::make_object<td_api::sendMessage>();
         req->chat_id_ = chat_id;
+        req->message_thread_id_ = 0;
+        req->reply_to_message_id_ = reply_to.value_or(0);
+        req->options_ = nullptr;
+        req->reply_markup_ = std::move(markup);
         req->input_message_content_ = std::move(content);
-        if (reply_to) {
-            req->reply_to_ = td_api::make_object<td_api::inputMessageReplyToMessage>(
-                chat_id, *reply_to, nullptr);
-        }
-        if (markup) req->reply_markup_ = std::move(markup);
 
         auto result = td.send_sync(std::move(req));
         check_error(result, ctx);
@@ -128,7 +134,7 @@ public:
     }
 
     // ---- Update dispatch ----
-    void process_update(detail::TdLibAdapter::Object obj) {
+    void process_update(detail::Object obj) {
         if (!obj) return;
         auto id = obj->get_id();
 
@@ -209,6 +215,31 @@ public:
 
     void handle_auth_state(td_api::object_ptr<td_api::AuthorizationState> state) {
         if (!state) return;
+
+        // Log the incoming authorization state for debugging hangs during login
+        const char* state_name = "unknown";
+        switch (state->get_id()) {
+            case td_api::authorizationStateWaitTdlibParameters::ID:
+                state_name = "authorizationStateWaitTdlibParameters"; break;
+            case td_api::authorizationStateWaitEncryptionKey::ID:
+                state_name = "authorizationStateWaitEncryptionKey"; break;
+            case td_api::authorizationStateWaitPhoneNumber::ID:
+                state_name = "authorizationStateWaitPhoneNumber"; break;
+            case td_api::authorizationStateWaitCode::ID:
+                state_name = "authorizationStateWaitCode"; break;
+            case td_api::authorizationStateWaitPassword::ID:
+                state_name = "authorizationStateWaitPassword"; break;
+            case td_api::authorizationStateWaitRegistration::ID:
+                state_name = "authorizationStateWaitRegistration"; break;
+            case td_api::authorizationStateReady::ID:
+                state_name = "authorizationStateReady"; break;
+            case td_api::authorizationStateLoggingOut::ID:
+                state_name = "authorizationStateLoggingOut"; break;
+            case td_api::authorizationStateClosed::ID:
+                state_name = "authorizationStateClosed"; break;
+            default: break;
+        }
+        CPPGRAM_INFO("auth", "handle_auth_state: id={} name={}", state->get_id(), state_name);
 
         switch (state->get_id()) {
         case td_api::authorizationStateWaitTdlibParameters::ID:
@@ -340,7 +371,8 @@ public:
     }
 
     // ---- Error checking ----
-    void check_error(const detail::TdLibAdapter::Object& obj, const char* context) {
+    void check_error(const detail::Object& obj,
+                     const char* context) {
         if (obj && obj->get_id() == td_api::error::ID) {
             auto& err = static_cast<const td_api::error&>(*obj);
             std::string msg = std::string(context) + ": " + err.message_ +
@@ -487,11 +519,8 @@ public:
 
     void setReaction(ChatId chat_id, MessageId msg_id,
                      const std::string& emoji) override {
-        auto reaction = td_api::make_object<td_api::reactionTypeEmoji>(emoji);
-        auto result = td.send_sync(
-            td_api::make_object<td_api::addMessageReaction>(
-                chat_id, msg_id, std::move(reaction), false, false));
-        check_error(result, "setReaction");
+        throw std::runtime_error(
+            "reactions are not supported by the linked TDLib version");
     }
 
     Message forwardMessage(ChatId from_chat, MessageId msg_id,
@@ -499,7 +528,8 @@ public:
         std::vector<std::int64_t> ids = {msg_id};
         auto result = td.send_sync(
             td_api::make_object<td_api::forwardMessages>(
-                to_chat, 0, from_chat, std::move(ids), nullptr, false, false));
+                to_chat, from_chat, std::move(ids), nullptr, false, false,
+                false));
         check_error(result, "forwardMessage");
         if (result && result->get_id() == td_api::messages::ID) {
             auto& msgs = static_cast<td_api::messages&>(*result);
@@ -641,9 +671,9 @@ public:
                      std::vector<std::string> options,
                      const PollConfig& config) override {
         auto content = td_api::make_object<td_api::inputMessagePoll>();
-        content->question_ = detail::make_text(question);
+        content->question_ = question;
         for (auto& o : options)
-            content->options_.push_back(detail::make_text(o));
+            content->options_.push_back(std::move(o));
         content->is_anonymous_ = config.is_anonymous;
         if (config.type == PollType::Quiz) {
             auto quiz = td_api::make_object<td_api::pollTypeQuiz>();
@@ -757,7 +787,7 @@ public:
                        std::vector<UserId> members) override {
         auto result = td.send_sync(
             td_api::make_object<td_api::createNewBasicGroupChat>(
-                std::move(members), title, 0));
+                std::move(members), title));
         check_error(result, "createGroup");
         if (result && result->get_id() == td_api::chat::ID) {
             auto& c = static_cast<td_api::chat&>(*result);
@@ -770,7 +800,7 @@ public:
                             const std::string& description) override {
         auto result = td.send_sync(
             td_api::make_object<td_api::createNewSupergroupChat>(
-                title, is_channel, false, description, nullptr, 0, false));
+                title, is_channel, description, nullptr, false));
         check_error(result, "createSupergroup");
         if (result && result->get_id() == td_api::chat::ID) {
             auto& c = static_cast<td_api::chat&>(*result);
@@ -855,18 +885,17 @@ public:
             user_id);
         auto status = td_api::make_object<td_api::chatMemberStatusAdministrator>();
         status->custom_title_ = rights.custom_title;
-        status->rights_ = td_api::make_object<td_api::chatAdministratorRights>();
-        status->rights_->can_manage_chat_ = rights.can_manage_chat;
-        status->rights_->can_change_info_ = rights.can_change_info;
-        status->rights_->can_post_messages_ = rights.can_post_messages;
-        status->rights_->can_edit_messages_ = rights.can_edit_messages;
-        status->rights_->can_delete_messages_ = rights.can_delete_messages;
-        status->rights_->can_invite_users_ = rights.can_invite_users;
-        status->rights_->can_restrict_members_ = rights.can_restrict_members;
-        status->rights_->can_pin_messages_ = rights.can_pin_messages;
-        status->rights_->can_promote_members_ = rights.can_promote_members;
-        status->rights_->can_manage_video_chats_ = rights.can_manage_video_chats;
-        status->rights_->is_anonymous_ = rights.is_anonymous;
+        status->can_manage_chat_ = rights.can_manage_chat;
+        status->can_change_info_ = rights.can_change_info;
+        status->can_post_messages_ = rights.can_post_messages;
+        status->can_edit_messages_ = rights.can_edit_messages;
+        status->can_delete_messages_ = rights.can_delete_messages;
+        status->can_invite_users_ = rights.can_invite_users;
+        status->can_restrict_members_ = rights.can_restrict_members;
+        status->can_pin_messages_ = rights.can_pin_messages;
+        status->can_promote_members_ = rights.can_promote_members;
+        status->can_manage_video_chats_ = rights.can_manage_video_chats;
+        status->is_anonymous_ = rights.is_anonymous;
         auto result = td.send_sync(
             td_api::make_object<td_api::setChatMemberStatus>(
                 chat_id, std::move(member_id), std::move(status)));
@@ -978,17 +1007,16 @@ public:
     void blockUser(UserId user_id) override {
         auto sender = td_api::make_object<td_api::messageSenderUser>(user_id);
         auto result = td.send_sync(
-            td_api::make_object<td_api::setMessageSenderBlockList>(
-                std::move(sender),
-                td_api::make_object<td_api::blockListMain>()));
+            td_api::make_object<td_api::toggleMessageSenderIsBlocked>(
+                std::move(sender), true));
         check_error(result, "blockUser");
     }
 
     void unblockUser(UserId user_id) override {
         auto sender = td_api::make_object<td_api::messageSenderUser>(user_id);
         auto result = td.send_sync(
-            td_api::make_object<td_api::setMessageSenderBlockList>(
-                std::move(sender), nullptr));
+            td_api::make_object<td_api::toggleMessageSenderIsBlocked>(
+                std::move(sender), false));
         check_error(result, "unblockUser");
     }
 
@@ -1032,7 +1060,7 @@ public:
                                         int limit) override {
         auto result = td.send_sync(
             td_api::make_object<td_api::searchMessages>(
-                nullptr, query, "", "", 0, 0, limit, nullptr, 0, 0));
+                nullptr, query, 0, 0, 0, limit, nullptr, 0, 0));
         check_error(result, "searchMessages");
         std::vector<Message> out;
         if (result && result->get_id() == td_api::foundMessages::ID) {
@@ -1053,11 +1081,11 @@ public:
                                             int limit) override {
         auto result = td.send_sync(
             td_api::make_object<td_api::searchChatMessages>(
-                chat_id, query, nullptr, 0, 0, limit, nullptr, 0, 0));
+                chat_id, query, nullptr, 0, 0, limit, nullptr, 0));
         check_error(result, "searchChatMessages");
         std::vector<Message> out;
-        if (result && result->get_id() == td_api::foundChatMessages::ID) {
-            auto& fm = static_cast<td_api::foundChatMessages&>(*result);
+        if (result && result->get_id() == td_api::foundMessages::ID) {
+            auto& fm = static_cast<td_api::foundMessages&>(*result);
             auto ct = lookup_chat_type(chat_id);
             for (auto& m : fm.messages_) {
                 if (m) out.push_back(
