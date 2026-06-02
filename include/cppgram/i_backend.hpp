@@ -5,14 +5,13 @@
 #include <optional>
 #include <functional>
 #include "cppgram/types.hpp"
+#include "cppgram/keyboard.hpp"
 
 namespace cppgram {
 class Message;
 class User;
 class Chat;
 struct ChatMember;
-struct InlineKeyboard;
-struct ReplyMarkup;
 struct FileInfo;
 struct PhotoSize;
 

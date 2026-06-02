@@ -295,6 +295,157 @@ int main() {
         assert(fi.is_downloaded);
     }
 
+    // ---- 25. Telegram API Error classification and mapping ----
+    {
+        // 303 Migration
+        {
+            Error err = Error::from_rpc(303, "PHONE_MIGRATE_2");
+            assert(err.code == ErrorCode::SeeOther);
+            assert(err.migrate_to_dc == 2);
+            bool caught = false;
+            try {
+                err.raise();
+            } catch (const PhoneMigrateError& e) {
+                assert(e.dc() == 2);
+                caught = true;
+            }
+            assert(caught);
+        }
+        {
+            Error err = Error::from_rpc(303, "FILE_MIGRATE_5");
+            assert(err.code == ErrorCode::SeeOther);
+            assert(err.migrate_to_dc == 5);
+            bool caught = false;
+            try {
+                err.raise();
+            } catch (const FileMigrateError& e) {
+                assert(e.dc() == 5);
+                caught = true;
+            }
+            assert(caught);
+        }
+        {
+            Error err = Error::from_rpc(303, "USER_MIGRATE_9");
+            assert(err.code == ErrorCode::SeeOther);
+            assert(err.migrate_to_dc == 9);
+            bool caught = false;
+            try {
+                err.raise();
+            } catch (const UserMigrateError& e) {
+                assert(e.dc() == 9);
+                caught = true;
+            }
+            assert(caught);
+        }
+        
+        // 400 Bad Request
+        {
+            Error err = Error::from_rpc(400, "USERNAME_INVALID");
+            assert(err.code == ErrorCode::BadRequest);
+            bool caught = false;
+            try {
+                err.raise();
+            } catch (const BadRequestError&) {
+                caught = true;
+            }
+            assert(caught);
+        }
+
+        // 401 Unauthorized
+        {
+            Error err = Error::from_rpc(401, "AUTH_KEY_UNREGISTERED");
+            assert(err.code == ErrorCode::Unauthorized);
+            bool caught = false;
+            try {
+                err.raise();
+            } catch (const UnauthorizedError&) {
+                caught = true;
+            }
+            assert(caught);
+        }
+
+        // 403 Forbidden
+        {
+            Error err = Error::from_rpc(403, "CHAT_WRITE_FORBIDDEN");
+            assert(err.code == ErrorCode::Forbidden);
+            bool caught = false;
+            try {
+                err.raise();
+            } catch (const ForbiddenError&) {
+                caught = true;
+            }
+            assert(caught);
+        }
+
+        // 404 Not Found
+        {
+            Error err = Error::from_rpc(404, "CHAT_ID_INVALID");
+            assert(err.code == ErrorCode::NotFound);
+            bool caught = false;
+            try {
+                err.raise();
+            } catch (const NotFoundError&) {
+                caught = true;
+            }
+            assert(caught);
+        }
+
+        // 406 Not Acceptable
+        {
+            Error err = Error::from_rpc(406, "FILENAME_INVALID");
+            assert(err.code == ErrorCode::NotAcceptable);
+            bool caught = false;
+            try {
+                err.raise();
+            } catch (const NotAcceptableError&) {
+                caught = true;
+            }
+            assert(caught);
+        }
+
+        // 420 Flood / Slowmode
+        {
+            Error err = Error::from_rpc(420, "FLOOD_WAIT_15");
+            assert(err.code == ErrorCode::FloodWait);
+            assert(err.retry_after == 15);
+            bool caught = false;
+            try {
+                err.raise();
+            } catch (const FloodWaitError& e) {
+                assert(e.seconds() == 15);
+                assert(e.retry_after() == std::chrono::seconds(15));
+                caught = true;
+            }
+            assert(caught);
+        }
+        {
+            Error err = Error::from_rpc(420, "SLOWMODE_WAIT_30");
+            assert(err.code == ErrorCode::Flood);
+            assert(err.retry_after == 30);
+            bool caught = false;
+            try {
+                err.raise();
+            } catch (const SlowmodeWaitError& e) {
+                assert(e.seconds() == 30);
+                caught = true;
+            }
+            assert(caught);
+        }
+
+        // 500 Internal Server
+        {
+            Error err = Error::from_rpc(500, "RPC_CALL_FAIL");
+            assert(err.code == ErrorCode::InternalServer);
+            bool caught = false;
+            try {
+                err.raise();
+            } catch (const InternalServerError&) {
+                caught = true;
+            }
+            assert(caught);
+        }
+    }
+
     std::cout << "All smoke tests passed.\n";
     return 0;
 }

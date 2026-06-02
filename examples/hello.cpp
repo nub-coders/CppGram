@@ -25,11 +25,6 @@ int main() {
     }
 
     Client client(std::atoi(id_str), hash);
-    client.loginBot(token);
-
-    auto me = client.getMe();
-    std::cout << "Logged in as: " << me.full_name()
-              << " (@" << me.username << ")\n";
 
     // Echo handler — reply with the same text (private chats only).
     client.onMessage(
@@ -110,6 +105,10 @@ int main() {
         }
     );
 
+    client.loginBot(token);
+    auto me = client.getMe();
+    std::cout << "Logged in as: " << me.full_name()
+              << " (@" << me.username << ")\n";
     std::cout << "Bot is running. Press Ctrl+C to stop.\n";
     client.run();
     return 0;

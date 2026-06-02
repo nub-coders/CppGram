@@ -210,12 +210,8 @@ inline void extract_media(const td_api::MessageContent& mc, Message& out) {
             si.width = ms.sticker_->width_;
             si.height = ms.sticker_->height_;
             si.emoji = ms.sticker_->emoji_;
-            if (ms.sticker_->full_type_) {
-                if (ms.sticker_->full_type_->get_id() == td_api::stickerFullTypeRegular::ID) {
-                    si.is_animated = false;
-                    si.is_video = false;
-                }
-            }
+            si.is_animated = false;
+            si.is_video = false;
             if (ms.sticker_->sticker_) {
                 si.file_id = ms.sticker_->sticker_->id_;
                 si.file_size = ms.sticker_->sticker_->size_;
@@ -232,11 +228,11 @@ inline void extract_media(const td_api::MessageContent& mc, Message& out) {
         if (mp.poll_) {
             Poll p;
             p.id = mp.poll_->id_;
-            if (mp.poll_->question_) p.question = mp.poll_->question_->text_;
+            if (!mp.poll_->question_.empty()) p.question = mp.poll_->question_;
             for (auto& o : mp.poll_->options_) {
                 if (o) {
                     PollOption po;
-                    if (o->text_) po.text = o->text_->text_;
+                    if (!o->text_.empty()) po.text = o->text_;
                     po.voter_count = o->voter_count_;
                     p.options.push_back(std::move(po));
                 }
@@ -378,12 +374,11 @@ inline td_api::object_ptr<td_api::ReplyMarkup> build_reply_markup(
                 } else if (!btn.switch_inline_query.empty()) {
                     td_btn->type_ = td_api::make_object<
                         td_api::inlineKeyboardButtonTypeSwitchInline>(
-                            nullptr, btn.switch_inline_query);
+                            btn.switch_inline_query, false);
                 } else if (!btn.switch_inline_query_current_chat.empty()) {
                     td_btn->type_ = td_api::make_object<
                         td_api::inlineKeyboardButtonTypeSwitchInline>(
-                            td_api::make_object<td_api::targetChatCurrent>(),
-                            btn.switch_inline_query_current_chat);
+                            btn.switch_inline_query_current_chat, true);
                 }
                 td_row.push_back(std::move(td_btn));
             }
@@ -395,7 +390,6 @@ inline td_api::object_ptr<td_api::ReplyMarkup> build_reply_markup(
         auto markup = td_api::make_object<td_api::replyMarkupShowKeyboard>();
         markup->resize_keyboard_ = rk->resize_keyboard;
         markup->one_time_ = rk->one_time_keyboard;
-        markup->is_persistent_ = rk->is_persistent;
         markup->input_field_placeholder_ = rk->input_field_placeholder;
         for (auto& row : rk->rows) {
             std::vector<td_api::object_ptr<td_api::keyboardButton>> td_row;
@@ -442,11 +436,10 @@ inline User convert_user(const td_api::user& u,
     out.id           = u.id_;
     out.first_name   = u.first_name_;
     out.last_name    = u.last_name_;
-    if (u.usernames_)
-        out.username = u.usernames_->editable_username_;
+    if (!u.username_.empty())
+        out.username = u.username_;
     out.phone_number = u.phone_number_;
     out.is_bot       = u.type_ && u.type_->get_id() == td_api::userTypeBot::ID;
-    out.is_premium   = u.is_premium_;
     out.is_verified  = u.is_verified_;
     out.is_scam      = u.is_scam_;
     out.is_fake      = u.is_fake_;
@@ -464,17 +457,14 @@ inline Chat convert_chat(const td_api::chat& c,
         out.type = convert_chat_type(*c.type_);
     out.has_protected_content = c.has_protected_content_;
     if (c.permissions_) {
-        out.permissions.can_send_messages = c.permissions_->can_send_basic_messages_;
-        out.permissions.can_send_media = c.permissions_->can_send_audios_ ||
-            c.permissions_->can_send_documents_ || c.permissions_->can_send_photos_ ||
-            c.permissions_->can_send_videos_;
+            out.permissions.can_send_messages = c.permissions_->can_send_messages_;
+            out.permissions.can_send_media = c.permissions_->can_send_media_messages_;
         out.permissions.can_send_polls = c.permissions_->can_send_polls_;
         out.permissions.can_send_other = c.permissions_->can_send_other_messages_;
-        out.permissions.can_add_web_page_previews = c.permissions_->can_add_link_previews_;
+        out.permissions.can_add_web_page_previews = c.permissions_->can_add_web_page_previews_;
         out.permissions.can_change_info = c.permissions_->can_change_info_;
         out.permissions.can_invite_users = c.permissions_->can_invite_users_;
         out.permissions.can_pin_messages = c.permissions_->can_pin_messages_;
-        out.permissions.can_manage_topics = c.permissions_->can_create_topics_;
     }
     out._client = backend;
     return out;
@@ -497,20 +487,14 @@ inline ChatMemberStatus convert_member_status(const td_api::ChatMemberStatus& s)
 inline td_api::object_ptr<td_api::chatPermissions> build_chat_permissions(
         const ChatPermissions& p) {
     auto out = td_api::make_object<td_api::chatPermissions>();
-    out->can_send_basic_messages_ = p.can_send_messages;
-    out->can_send_audios_ = p.can_send_media;
-    out->can_send_documents_ = p.can_send_media;
-    out->can_send_photos_ = p.can_send_media;
-    out->can_send_videos_ = p.can_send_media;
-    out->can_send_video_notes_ = p.can_send_media;
-    out->can_send_voice_notes_ = p.can_send_media;
+    out->can_send_messages_ = p.can_send_messages;
+    out->can_send_media_messages_ = p.can_send_media;
     out->can_send_polls_ = p.can_send_polls;
     out->can_send_other_messages_ = p.can_send_other;
-    out->can_add_link_previews_ = p.can_add_web_page_previews;
+    out->can_add_web_page_previews_ = p.can_add_web_page_previews;
     out->can_change_info_ = p.can_change_info;
     out->can_invite_users_ = p.can_invite_users;
     out->can_pin_messages_ = p.can_pin_messages;
-    out->can_create_topics_ = p.can_manage_topics;
     return out;
 }
 
@@ -561,11 +545,10 @@ inline Message convert_message(const td_api::message& m,
     // Reply markup
     out.reply_markup = convert_reply_markup(m.reply_markup_.get());
 
-    // Reply
-    if (m.reply_to_ && m.reply_to_->get_id() == td_api::messageReplyToMessage::ID) {
-        auto& r = static_cast<const td_api::messageReplyToMessage&>(*m.reply_to_);
-        out.reply_to = r.message_id_;
-    }
+        // Reply
+        if (m.reply_to_message_id_) {
+            out.reply_to = m.reply_to_message_id_;
+        }
 
     // Sender
     if (m.sender_id_ && m.sender_id_->get_id() == td_api::messageSenderUser::ID) {
@@ -579,26 +562,26 @@ inline Message convert_message(const td_api::message& m,
         fi.origin_date = std::chrono::system_clock::from_time_t(m.forward_info_->date_);
         auto& origin = m.forward_info_->origin_;
         switch (origin->get_id()) {
-            case td_api::messageOriginUser::ID: {
-                auto& o = static_cast<const td_api::messageOriginUser&>(*origin);
+            case td_api::messageForwardOriginUser::ID: {
+                auto& o = static_cast<const td_api::messageForwardOriginUser&>(*origin);
                 fi.origin_sender_id = o.sender_user_id_;
                 break;
             }
-            case td_api::messageOriginChat::ID: {
-                auto& o = static_cast<const td_api::messageOriginChat&>(*origin);
+            case td_api::messageForwardOriginChat::ID: {
+                auto& o = static_cast<const td_api::messageForwardOriginChat&>(*origin);
                 fi.origin_chat_id = o.sender_chat_id_;
                 fi.origin_sender_name = o.author_signature_;
                 break;
             }
-            case td_api::messageOriginChannel::ID: {
-                auto& o = static_cast<const td_api::messageOriginChannel&>(*origin);
+            case td_api::messageForwardOriginChannel::ID: {
+                auto& o = static_cast<const td_api::messageForwardOriginChannel&>(*origin);
                 fi.origin_chat_id    = o.chat_id_;
                 fi.origin_message_id = o.message_id_;
                 fi.origin_sender_name = o.author_signature_;
                 break;
             }
-            case td_api::messageOriginHiddenUser::ID: {
-                auto& o = static_cast<const td_api::messageOriginHiddenUser&>(*origin);
+            case td_api::messageForwardOriginHiddenUser::ID: {
+                auto& o = static_cast<const td_api::messageForwardOriginHiddenUser&>(*origin);
                 fi.origin_sender_name = o.sender_name_;
                 break;
             }
