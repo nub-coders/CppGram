@@ -1146,12 +1146,14 @@ void Client::login(const std::string& phone,
 }
 
 void Client::loginBot(const std::string& token) {
+    CPPGRAM_INFO("auth", "loginBot: waiting for authorization state WaitPhoneNumber");
     impl_->wait_for_auth(AuthState::WaitPhoneNumber);
 
     CPPGRAM_INFO("auth", "bot login (token len={})", token.size());
     impl_->td.send(
         td_api::make_object<td_api::checkAuthenticationBotToken>(token), {});
 
+    CPPGRAM_INFO("auth", "loginBot: waiting for authorization state Ready");
     impl_->wait_for_auth(AuthState::Ready);
     CPPGRAM_INFO("auth", "bot login complete");
 }
