@@ -166,6 +166,18 @@ public:
         case td_api::updateNewMessage::ID: {
             auto& upd = static_cast<td_api::updateNewMessage&>(*obj);
             if (upd.message_) {
+                if (upd.message_->content_ &&
+                    upd.message_->content_->get_id() == td_api::messageText::ID) {
+                    auto& mt = static_cast<const td_api::messageText&>(
+                        *upd.message_->content_);
+                    CPPGRAM_INFO("update", "received new message chat={} id={} text={}",
+                                 upd.message_->chat_id_, upd.message_->id_,
+                                 mt.text_ ? mt.text_->text_ : "<empty>");
+                } else {
+                    CPPGRAM_INFO("update", "received new non-text message chat={} id={} type={}",
+                                 upd.message_->chat_id_, upd.message_->id_,
+                                 upd.message_->content_ ? upd.message_->content_->get_id() : 0);
+                }
                 auto msg = detail::convert_message(
                     *upd.message_, lookup_chat_type(upd.message_->chat_id_),
                     weak_from_this());
@@ -323,8 +335,11 @@ public:
     void dispatch_message(Message msg) {
         std::vector<MessageHandler> copy;
         { std::lock_guard lk(handlers_mtx_); copy = on_message_handlers_; }
+        CPPGRAM_INFO("dispatch", "dispatching message chat={} id={} text={} handlers={}",
+                     msg.chat_id, msg.id, msg.text, copy.size());
         for (auto& h : copy) {
             if (h.filter(msg)) {
+                CPPGRAM_INFO("dispatch", "handler matched for chat={} id={}", msg.chat_id, msg.id);
                 try { h.callback(msg); }
                 catch (const std::exception& e) {
                     CPPGRAM_ERROR("handler",
