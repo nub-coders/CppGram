@@ -18,6 +18,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include <deque>
 #include <vector>
 
 namespace cppgram {
@@ -59,10 +60,53 @@ public:
     std::vector<DeletedMessagesHandler> on_deleted_messages_handlers_;
     std::vector<CallbackQueryHandler>   on_callback_query_handlers_;
 
+    // Event dispatcher thread and queue
+    std::thread dispatcher_thread_;
+    std::atomic<bool> dispatcher_running_{false};
+    std::mutex queue_mtx_;
+    std::condition_variable queue_cv_;
+    std::deque<detail::Object> update_queue_;
+
+    ~ClientImpl() {
+        {
+            std::lock_guard lk(queue_mtx_);
+            dispatcher_running_ = false;
+        }
+        queue_cv_.notify_all();
+        if (dispatcher_thread_.joinable()) {
+            dispatcher_thread_.join();
+        }
+    }
+
+    // ---- Dispatcher loop (runs on its own thread) ----
+    void dispatcher_loop() {
+        while (dispatcher_running_) {
+            detail::Object obj;
+            {
+                std::unique_lock lk(queue_mtx_);
+                queue_cv_.wait(lk, [&] {
+                    return !dispatcher_running_ || !update_queue_.empty();
+                });
+                if (!dispatcher_running_ && update_queue_.empty()) break;
+                if (update_queue_.empty()) continue;
+                obj = std::move(update_queue_.front());
+                update_queue_.pop_front();
+            }
+            if (obj) {
+                process_update(std::move(obj));
+            }
+        }
+    }
+
     // ---- Initialization ----
     void init() {
+        dispatcher_running_ = true;
+        dispatcher_thread_ = std::thread([this] { dispatcher_loop(); });
+
         td.set_update_handler([this](detail::Object obj) {
-            process_update(std::move(obj));
+            std::lock_guard lk(queue_mtx_);
+            update_queue_.push_back(std::move(obj));
+            queue_cv_.notify_one();
         });
         td.start();
     }
