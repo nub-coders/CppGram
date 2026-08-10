@@ -1,4 +1,10 @@
 #pragma once
+
+/**
+ * @file types.hpp
+ * @brief Common types, aliases, enumerations, and metadata structures for CppGram.
+ */
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -8,7 +14,10 @@
 
 namespace cppgram {
 
-// ---- Core type aliases ----
+// ============================================================================
+// Core Type Aliases
+// ============================================================================
+
 using ChatId    = std::int64_t;
 using UserId    = std::int64_t;
 using MessageId = std::int64_t;
@@ -17,26 +26,97 @@ using UpdateId  = std::int64_t;
 
 using Timestamp = std::chrono::system_clock::time_point;
 
-// ---- Enums ----
+// ============================================================================
+// Enumerations
+// ============================================================================
+
+/**
+ * @brief Represents the category/type of a Telegram chat.
+ */
 enum class ChatType { Private, BasicGroup, Supergroup, Channel, Secret, Unknown };
 
+/**
+ * @brief Represents the client authentication flow state.
+ */
 enum class AuthState {
     None, WaitPhoneNumber, WaitCode, WaitPassword,
     WaitRegistration, Ready, LoggingOut, Closed
 };
 
+/**
+ * @brief Media classification for Telegram message attachments.
+ */
 enum class MediaType {
     None, Photo, Video, Document, Audio, Voice, VideoNote,
     Animation, Sticker, Poll, Location, Contact, Venue, Dice
 };
 
-// ---- API credentials ----
+/**
+ * @brief Supported message text formatting parse modes.
+ */
+enum class ParseMode {
+    None, Markdown, MarkdownV2, HTML
+};
+
+/**
+ * @brief Message entity styling types.
+ */
+enum class MessageEntityType {
+    Mention, Hashtag, Cashtag, BotCommand, Url, EmailAddress, PhoneNumber,
+    Bold, Italic, Underline, Strikethrough, Spoiler, Code, Pre, PreCode,
+    TextUrl, MentionName, CustomEmoji, Unknown
+};
+
+// ============================================================================
+// Message Formatting Structures
+// ============================================================================
+
+/**
+ * @brief Represents a formatted subsection of text (e.g. bold, link, code block).
+ */
+struct MessageEntity {
+    MessageEntityType type{MessageEntityType::Unknown};
+    int offset{0};
+    int length{0};
+    std::string argument;
+
+    const std::string& url() const noexcept { return argument; }
+};
+
+/**
+ * @brief Plain text paired with parsed formatting entity metadata.
+ */
+struct FormattedText {
+    std::string text;
+    std::vector<MessageEntity> entities;
+};
+
+/**
+ * @brief Configuration parameters for message transmission.
+ */
+struct SendMessageOptions {
+    ParseMode parse_mode{ParseMode::None};
+    std::optional<Timestamp> schedule_date;
+    bool disable_notification{false};
+    bool from_background{false};
+    bool protect_content{false};
+};
+
+// ============================================================================
+// API & Client Configuration
+// ============================================================================
+
+/**
+ * @brief Telegram application credentials required for MTProto/TDLib connectivity.
+ */
 struct ApiCredentials {
     std::int32_t api_id{};
     std::string  api_hash;
 };
 
-// ---- File progress ----
+/**
+ * @brief File transfer download progress indicator.
+ */
 struct FileProgress {
     std::int64_t downloaded{};
     std::int64_t total{};
@@ -45,7 +125,13 @@ struct FileProgress {
     }
 };
 
-// ---- Forward info ----
+// ============================================================================
+// Message Routing & Metadata Structures
+// ============================================================================
+
+/**
+ * @brief Metadata for forwarded messages.
+ */
 struct ForwardInfo {
     UserId      origin_sender_id{};
     ChatId      origin_chat_id{};
@@ -54,13 +140,17 @@ struct ForwardInfo {
     Timestamp   origin_date{};
 };
 
-// ---- Reply info ----
+/**
+ * @brief Metadata for message reply references.
+ */
 struct ReplyInfo {
     ChatId    reply_in_chat_id{};
     MessageId reply_to_message_id{};
 };
 
-// ---- Location ----
+/**
+ * @brief Geographic coordinates and live location metadata.
+ */
 struct Location {
     double latitude{};
     double longitude{};
@@ -70,7 +160,9 @@ struct Location {
     std::int32_t proximity_alert_radius{};
 };
 
-// ---- Contact ----
+/**
+ * @brief User phone contact entry.
+ */
 struct Contact {
     std::string phone_number;
     std::string first_name;
@@ -79,7 +171,9 @@ struct Contact {
     std::string vcard;
 };
 
-// ---- Venue ----
+/**
+ * @brief Point of interest / venue metadata.
+ */
 struct Venue {
     Location location;
     std::string title;
@@ -89,14 +183,26 @@ struct Venue {
     std::string type;
 };
 
-// ---- Poll ----
+// ============================================================================
+// Polls & Interactive Elements
+// ============================================================================
+
+/**
+ * @brief Single option within a poll.
+ */
 struct PollOption {
     std::string text;
     int voter_count{};
 };
 
+/**
+ * @brief Category of poll (standard voting vs educational quiz).
+ */
 enum class PollType { Regular, Quiz };
 
+/**
+ * @brief Configuration settings for creating a new poll.
+ */
 struct PollConfig {
     PollType type{PollType::Regular};
     bool is_anonymous{true};
@@ -106,6 +212,9 @@ struct PollConfig {
     std::int32_t open_period{};
 };
 
+/**
+ * @brief Poll payload and current voting statistics.
+ */
 struct Poll {
     std::int64_t id{};
     std::string question;
@@ -119,13 +228,21 @@ struct Poll {
     std::string explanation;
 };
 
-// ---- Dice ----
+/**
+ * @brief Animated dice roll payload and outcome value.
+ */
 struct Dice {
     std::string emoji;
     int value{};
 };
 
-// ---- Chat permissions ----
+// ============================================================================
+// Chat Permissions & Administration
+// ============================================================================
+
+/**
+ * @brief Granular user permissions within a group or supergroup chat.
+ */
 struct ChatPermissions {
     bool can_send_messages{true};
     bool can_send_media{true};
@@ -138,7 +255,9 @@ struct ChatPermissions {
     bool can_manage_topics{false};
 };
 
-// ---- Chat admin rights ----
+/**
+ * @brief Granular administrator privileges within a chat.
+ */
 struct ChatAdminRights {
     bool can_manage_chat{false};
     bool can_change_info{false};
@@ -154,12 +273,16 @@ struct ChatAdminRights {
     std::string custom_title;
 };
 
-// ---- Chat member status ----
+/**
+ * @brief Status of a participant within a chat.
+ */
 enum class ChatMemberStatus {
     Creator, Administrator, Member, Restricted, Left, Banned
 };
 
-// ---- Input file for uploads ----
+/**
+ * @brief File descriptor for local upload payloads.
+ */
 struct InputFile {
     std::string path;
 

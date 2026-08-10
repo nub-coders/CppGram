@@ -14,6 +14,7 @@ class Chat;
 struct ChatMember;
 struct FileInfo;
 struct PhotoSize;
+struct UserProfilePhotos;
 
 class IBackend {
 public:
@@ -28,11 +29,26 @@ public:
     // ---- Text messaging ----
     virtual Message sendMessage(ChatId chat_id, const std::string& text,
                                 std::optional<MessageId> reply_to) = 0;
+    virtual Message sendMessage(ChatId chat_id, const std::string& text,
+                                std::optional<MessageId> reply_to,
+                                ParseMode parse_mode,
+                                const SendMessageOptions& options) = 0;
     virtual Message sendMessageWithMarkup(ChatId chat_id, const std::string& text,
                                           std::optional<MessageId> reply_to,
                                           const ReplyMarkup& markup) = 0;
+    virtual Message sendMessageWithMarkup(ChatId chat_id, const std::string& text,
+                                          std::optional<MessageId> reply_to,
+                                          const ReplyMarkup& markup,
+                                          ParseMode parse_mode,
+                                          const SendMessageOptions& options) = 0;
+    virtual Message sendFormattedMessage(ChatId chat_id, const FormattedText& text,
+                                         std::optional<MessageId> reply_to,
+                                         const std::optional<ReplyMarkup>& markup,
+                                         const SendMessageOptions& options) = 0;
     virtual void    editMessage(ChatId, MessageId, const std::string& text) = 0;
+    virtual void    editMessage(ChatId, MessageId, const std::string& text, ParseMode parse_mode) = 0;
     virtual void    editMessageCaption(ChatId, MessageId, const std::string& caption) = 0;
+    virtual void    editMessageCaption(ChatId, MessageId, const std::string& caption, ParseMode parse_mode) = 0;
     virtual void    editMessageReplyMarkup(ChatId, MessageId, const InlineKeyboard& markup) = 0;
     virtual void    deleteMessages(ChatId, std::vector<MessageId>) = 0;
     virtual void    setReaction(ChatId, MessageId, const std::string& emoji) = 0;
@@ -41,27 +57,68 @@ public:
     virtual void    unpinMessage(ChatId, MessageId) = 0;
     virtual void    unpinAllMessages(ChatId) = 0;
 
+    // ---- Scheduled messages ----
+    virtual std::vector<Message> getScheduledMessages(ChatId chat_id) = 0;
+    virtual void sendScheduledMessageNow(ChatId chat_id, MessageId message_id) = 0;
+    virtual void deleteScheduledMessages(ChatId chat_id, std::vector<MessageId> message_ids) = 0;
+
     // ---- Media messaging ----
     virtual Message sendPhoto(ChatId, const InputFile&, const std::string& caption,
                               std::optional<MessageId> reply_to) = 0;
+    virtual Message sendPhoto(ChatId, const InputFile&, const std::string& caption,
+                              std::optional<MessageId> reply_to,
+                              ParseMode parse_mode,
+                              const SendMessageOptions& options) = 0;
     virtual Message sendVideo(ChatId, const InputFile&, const std::string& caption,
                               std::optional<MessageId> reply_to,
                               int width, int height, int duration) = 0;
+    virtual Message sendVideo(ChatId, const InputFile&, const std::string& caption,
+                              std::optional<MessageId> reply_to,
+                              ParseMode parse_mode,
+                              const SendMessageOptions& options,
+                              int width, int height, int duration) = 0;
     virtual Message sendDocument(ChatId, const InputFile&, const std::string& caption,
                                  std::optional<MessageId> reply_to) = 0;
+    virtual Message sendDocument(ChatId, const InputFile&, const std::string& caption,
+                                 std::optional<MessageId> reply_to,
+                                 ParseMode parse_mode,
+                                 const SendMessageOptions& options) = 0;
     virtual Message sendAudio(ChatId, const InputFile&, const std::string& caption,
                               std::optional<MessageId> reply_to, int duration,
                               const std::string& title, const std::string& performer) = 0;
+    virtual Message sendAudio(ChatId, const InputFile&, const std::string& caption,
+                              std::optional<MessageId> reply_to,
+                              ParseMode parse_mode,
+                              const SendMessageOptions& options,
+                              int duration,
+                              const std::string& title, const std::string& performer) = 0;
     virtual Message sendVoiceNote(ChatId, const InputFile&, const std::string& caption,
                                   std::optional<MessageId> reply_to, int duration) = 0;
+    virtual Message sendVoiceNote(ChatId, const InputFile&, const std::string& caption,
+                                  std::optional<MessageId> reply_to,
+                                  ParseMode parse_mode,
+                                  const SendMessageOptions& options,
+                                  int duration) = 0;
     virtual Message sendVideoNote(ChatId, const InputFile&,
                                   std::optional<MessageId> reply_to,
+                                  int duration, int length) = 0;
+    virtual Message sendVideoNote(ChatId, const InputFile&,
+                                  std::optional<MessageId> reply_to,
+                                  const SendMessageOptions& options,
                                   int duration, int length) = 0;
     virtual Message sendAnimation(ChatId, const InputFile&, const std::string& caption,
                                   std::optional<MessageId> reply_to,
                                   int width, int height, int duration) = 0;
+    virtual Message sendAnimation(ChatId, const InputFile&, const std::string& caption,
+                                  std::optional<MessageId> reply_to,
+                                  ParseMode parse_mode,
+                                  const SendMessageOptions& options,
+                                  int width, int height, int duration) = 0;
     virtual Message sendSticker(ChatId, const InputFile&,
                                 std::optional<MessageId> reply_to) = 0;
+    virtual Message sendSticker(ChatId, const InputFile&,
+                                std::optional<MessageId> reply_to,
+                                const SendMessageOptions& options) = 0;
 
     // ---- Rich messages ----
     virtual Message sendPoll(ChatId, const std::string& question,
@@ -96,6 +153,14 @@ public:
     // ---- User operations ----
     virtual void blockUser(UserId) = 0;
     virtual void unblockUser(UserId) = 0;
+    virtual void setProfilePhoto(const InputFile&) = 0;
+    virtual void deleteProfilePhoto(std::int64_t profile_photo_id) = 0;
+    virtual UserProfilePhotos getUserProfilePhotos(UserId, int offset, int limit) = 0;
+
+    // ---- Text parsing helper ----
+    virtual void setDefaultParseMode(ParseMode) = 0;
+    virtual ParseMode getDefaultParseMode() const = 0;
+    virtual FormattedText parseTextEntities(const std::string& text, ParseMode parse_mode) = 0;
 
     // ---- File operations ----
     virtual FileInfo getFile(FileId) = 0;

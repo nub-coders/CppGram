@@ -120,4 +120,9 @@ struct FileInfo {
     double download_progress{};
 };
 
+struct UserProfilePhotos {
+    int total_count{0};
+    std::vector<Photo> photos;
+};
+
 } // namespace cppgram

@@ -15,9 +15,23 @@ Message Message::reply(const std::string& body) {
     return {};
 }
 
+Message Message::reply(const std::string& body, ParseMode parse_mode) {
+    if (auto c = _client.lock())
+        return c->sendMessage(chat_id, body, id, parse_mode, {});
+    CPPGRAM_WARN("entity", "Message::reply on expired client");
+    return {};
+}
+
 Message Message::reply(const std::string& body, const ReplyMarkup& markup) {
     if (auto c = _client.lock())
         return c->sendMessageWithMarkup(chat_id, body, id, markup);
+    CPPGRAM_WARN("entity", "Message::reply on expired client");
+    return {};
+}
+
+Message Message::reply(const std::string& body, const ReplyMarkup& markup, ParseMode parse_mode) {
+    if (auto c = _client.lock())
+        return c->sendMessageWithMarkup(chat_id, body, id, markup, parse_mode, {});
     CPPGRAM_WARN("entity", "Message::reply on expired client");
     return {};
 }
@@ -26,8 +40,16 @@ void Message::edit(const std::string& body) {
     if (auto c = _client.lock()) c->editMessage(chat_id, id, body);
 }
 
+void Message::edit(const std::string& body, ParseMode parse_mode) {
+    if (auto c = _client.lock()) c->editMessage(chat_id, id, body, parse_mode);
+}
+
 void Message::editCaption(const std::string& new_caption) {
     if (auto c = _client.lock()) c->editMessageCaption(chat_id, id, new_caption);
+}
+
+void Message::editCaption(const std::string& new_caption, ParseMode parse_mode) {
+    if (auto c = _client.lock()) c->editMessageCaption(chat_id, id, new_caption, parse_mode);
 }
 
 void Message::editReplyMarkup(const InlineKeyboard& markup) {
@@ -80,6 +102,14 @@ void Chat::setDescription(const std::string& desc) {
     if (auto c = _client.lock()) c->setChatDescription(id, desc);
 }
 
+void Chat::setPhoto(const InputFile& photo) {
+    if (auto c = _client.lock()) c->setChatPhoto(id, photo);
+}
+
+void Chat::deletePhoto() {
+    if (auto c = _client.lock()) c->deleteChatPhoto(id);
+}
+
 void Chat::setPermissions(const ChatPermissions& perms) {
     if (auto c = _client.lock()) c->setChatPermissions(id, perms);
 }
@@ -108,6 +138,11 @@ std::string Chat::getInviteLink() {
 int Chat::getMemberCount() {
     if (auto c = _client.lock()) return c->getChatMemberCount(id);
     return 0;
+}
+
+std::vector<Message> Chat::getScheduledMessages() {
+    if (auto c = _client.lock()) return c->getScheduledMessages(id);
+    return {};
 }
 
 // ---- CallbackQuery methods ----

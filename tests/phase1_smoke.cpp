@@ -9,11 +9,38 @@
 #include "cppgram/media.hpp"
 #include "cppgram/keyboard.hpp"
 #include "cppgram/callback_query.hpp"
+#include "cppgram/storage.hpp"
+#include "cppgram/coro.hpp"
 #include <cassert>
 #include <iostream>
+#include <cstdio>
+
+using namespace cppgram;
+
+#if __has_include(<coroutine>)
+Task<int> async_add(int a, int b) {
+    co_return a + b;
+}
+
+Task<int> async_compute() {
+    int v1 = co_await async_add(10, 20);
+    int v2 = co_await async_add(v1, 12);
+    co_return v2;
+}
+
+Task<void> async_set_flag(bool& flag) {
+    flag = true;
+    co_return;
+}
+
+Task<int> async_throw() {
+    throw std::runtime_error("coroutine error");
+    co_return 0;
+}
+#endif
 
 int main() {
-    using namespace cppgram;
+
 
     // ---- 1. Type sanity ----
     static_assert(sizeof(ChatId) == 8);
@@ -446,6 +473,125 @@ int main() {
         }
     }
 
-    std::cout << "All smoke tests passed.\n";
+    // ---- 26. ParseMode & FormattedText & MessageEntity (v0.2) ----
+    {
+        assert(ParseMode::None != ParseMode::Markdown);
+        assert(ParseMode::Markdown != ParseMode::MarkdownV2);
+        assert(ParseMode::MarkdownV2 != ParseMode::HTML);
+
+        MessageEntity ent{MessageEntityType::Bold, 0, 5, ""};
+        assert(ent.type == MessageEntityType::Bold);
+        assert(ent.offset == 0);
+        assert(ent.length == 5);
+
+        MessageEntity link_ent{MessageEntityType::TextUrl, 6, 4, "https://telegram.org"};
+        assert(link_ent.type == MessageEntityType::TextUrl);
+        assert(link_ent.url() == "https://telegram.org");
+
+        FormattedText ft{"Hello link", {ent, link_ent}};
+        assert(ft.text == "Hello link");
+        assert(ft.entities.size() == 2);
+    }
+
+    // ---- 27. SendMessageOptions (v0.2) ----
+    {
+        SendMessageOptions opt;
+        assert(opt.parse_mode == ParseMode::None);
+        assert(!opt.schedule_date.has_value());
+        assert(opt.disable_notification == false);
+        assert(opt.protect_content == false);
+
+        opt.parse_mode = ParseMode::MarkdownV2;
+        opt.schedule_date = std::chrono::system_clock::from_time_t(1750000000);
+        opt.disable_notification = true;
+        opt.protect_content = true;
+        assert(opt.parse_mode == ParseMode::MarkdownV2);
+        assert(opt.schedule_date.has_value() && std::chrono::system_clock::to_time_t(*opt.schedule_date) == 1750000000);
+        assert(opt.disable_notification);
+        assert(opt.protect_content);
+    }
+
+    // ---- 28. Session Storage (Memory & SQLite) (v0.2) ----
+    {
+        // Memory storage
+        auto mem_store = create_storage(":memory:");
+        assert(mem_store != nullptr);
+
+        mem_store->set_value("auth_token", "abc123xyz");
+        auto val = mem_store->get_value("auth_token");
+        assert(val.has_value() && *val == "abc123xyz");
+
+        PeerInfo peer{123456, 1, "7891011", "testuser", "", ""};
+        mem_store->save_peer(peer);
+        auto p1 = mem_store->get_peer(123456);
+        assert(p1.has_value() && p1->username == "testuser" && p1->access_hash == "7891011");
+        auto p2 = mem_store->get_peer_by_username("testuser");
+        assert(p2.has_value() && p2->id == 123456);
+
+        mem_store->delete_value("auth_token");
+        assert(!mem_store->get_value("auth_token").has_value());
+
+        // SQLite disk storage
+        const std::string test_db = "/tmp/test_cppgram_smoke.db";
+        std::remove(test_db.c_str());
+
+        auto sql_store = create_storage(test_db);
+        assert(sql_store != nullptr);
+
+        sql_store->set_value("key1", "value1");
+        auto sval = sql_store->get_value("key1");
+        assert(sval.has_value() && *sval == "value1");
+
+        PeerInfo sql_peer{-100123456789, 3, "999888", "mychannel", "", ""};
+        sql_store->save_peer(sql_peer);
+        auto sp1 = sql_store->get_peer(-100123456789);
+        assert(sp1.has_value() && sp1->username == "mychannel" && sp1->type == 3);
+        auto sp2 = sql_store->get_peer_by_username("mychannel");
+        assert(sp2.has_value() && sp2->id == -100123456789);
+
+        sql_store->delete_value("key1");
+        assert(!sql_store->get_value("key1").has_value());
+
+        std::remove(test_db.c_str());
+    }
+
+    // ---- 29. UserProfilePhotos (v0.2) ----
+    {
+        UserProfilePhotos photos;
+        photos.total_count = 2;
+        Photo p1, p2;
+        p1.sizes.push_back(PhotoSize{1, "", 160, 160, 5000});
+        p2.sizes.push_back(PhotoSize{2, "", 640, 640, 25000});
+        photos.photos.push_back(p1);
+        photos.photos.push_back(p2);
+
+        assert(photos.total_count == 2);
+        assert(photos.photos.size() == 2);
+        assert(photos.photos[0].sizes[0].width == 160);
+        assert(photos.photos[1].sizes[0].width == 640);
+    }
+
+    // ---- 30. C++20 Coroutines (v0.2) ----
+#if __has_include(<coroutine>)
+    {
+        int sum = sync_wait(async_compute());
+        assert(sum == 42);
+
+        bool flag = false;
+        sync_wait(async_set_flag(flag));
+        assert(flag == true);
+
+        bool threw = false;
+        try {
+            sync_wait(async_throw());
+        } catch (const std::runtime_error& e) {
+            threw = true;
+            assert(std::string(e.what()) == "coroutine error");
+        }
+        assert(threw);
+    }
+#endif
+
+    std::cout << "All smoke tests passed (including error mapping and v0.2 features).\n";
     return 0;
 }

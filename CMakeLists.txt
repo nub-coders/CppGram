@@ -8,6 +8,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(NOT MSVC)
+    add_compile_options(-fno-char8_t)
+endif()
+
+
 option(CPPGRAM_BUILD_TESTS      "Build unit tests"   ON)
 option(CPPGRAM_BUILD_EXAMPLES   "Build examples"     ON)
 option(CPPGRAM_BUILD_BENCHMARKS "Build benchmarks"   OFF)
@@ -65,7 +70,8 @@ target_sources(cppgram PRIVATE
     src/backend/log.cpp
     src/backend/client.cpp
     src/core/entities.cpp
-    src/core/filters.cpp)
+    src/core/filters.cpp
+    src/core/storage.cpp)
 
 target_link_libraries(cppgram
     PUBLIC  Threads::Threads

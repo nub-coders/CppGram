@@ -35,6 +35,8 @@ public:
     std::vector<User> members();
     void setTitle(const std::string& new_title);
     void setDescription(const std::string& desc);
+    void setPhoto(const InputFile& photo);
+    void deletePhoto();
     void setPermissions(const ChatPermissions& perms);
     void banMember(UserId user_id);
     void unbanMember(UserId user_id);
@@ -42,6 +44,7 @@ public:
     void restrictMember(UserId user_id, const ChatPermissions& perms);
     std::string getInviteLink();
     int getMemberCount();
+    std::vector<Message> getScheduledMessages();
 
     std::weak_ptr<IBackend> _client;
 };

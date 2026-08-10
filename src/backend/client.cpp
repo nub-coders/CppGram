@@ -53,6 +53,10 @@ public:
     std::unordered_map<ChatId, Chat>  chat_cache_;
     std::unordered_map<ChatId, ChatType> chat_type_cache_;
 
+    // Storage & Config
+    std::shared_ptr<ISessionStorage> storage_;
+    std::atomic<ParseMode> default_parse_mode_{ParseMode::None};
+
     // Event handlers
     std::mutex handlers_mtx_;
     std::vector<MessageHandler>         on_message_handlers_;
@@ -136,7 +140,7 @@ public:
         params->system_language_code_ = "en";
         params->device_model_ = "CppGram";
         params->system_version_ = "Linux";
-        params->application_version_ = "0.1.0";
+        params->application_version_ = "0.2.0";
         params->enable_storage_optimizer_ = true;
         params->ignore_file_names_ = false;
         td.send(td_api::make_object<td_api::setTdlibParameters>(std::move(params)), {});
@@ -154,13 +158,14 @@ public:
                          td_api::object_ptr<td_api::InputMessageContent> content,
                          std::optional<MessageId> reply_to,
                          td_api::object_ptr<td_api::ReplyMarkup> markup,
-                         const char* ctx) {
+                         const char* ctx,
+                         td_api::object_ptr<td_api::messageSendOptions> options = nullptr) {
         auto req = td_api::make_object<td_api::sendMessage>();
         req->chat_id_ = chat_id;
         req->message_thread_id_ = 0;
         req->reply_to_message_id_ = reply_to.value_or(0);
-        req->options_ = nullptr;
-        req->reply_markup_ = std::move(markup);
+        if (options) req->options_ = std::move(options);
+        if (markup) req->reply_markup_ = std::move(markup);
         req->input_message_content_ = std::move(content);
 
         auto result = td.send_sync(std::move(req));
@@ -523,30 +528,82 @@ public:
         return out;
     }
 
+    // ---- Formatting & Text Parsing ----
+    FormattedText parseTextEntities(const std::string& text, ParseMode parse_mode) override {
+        auto pm = parse_mode == ParseMode::None ? default_parse_mode_.load() : parse_mode;
+        auto parsed = detail::parse_text(text, pm);
+        if (parsed) return detail::convert_td_formatted_text(*parsed);
+        return {text, {}};
+    }
+
     // ---- Text messaging ----
 
     Message sendMessage(ChatId chat_id, const std::string& text,
                         std::optional<MessageId> reply_to) override {
+        return sendMessage(chat_id, text, reply_to, default_parse_mode_.load(), {});
+    }
+
+    Message sendMessage(ChatId chat_id, const std::string& text,
+                        std::optional<MessageId> reply_to,
+                        ParseMode parse_mode,
+                        const SendMessageOptions& options) override {
+        auto pm = parse_mode == ParseMode::None ? default_parse_mode_.load() : parse_mode;
         auto content = td_api::make_object<td_api::inputMessageText>();
-        content->text_ = detail::make_text(text);
+        content->text_ = detail::parse_text(text, pm);
         CPPGRAM_INFO("client", "sendMessage chat={}", chat_id);
         return send_content(chat_id, std::move(content), reply_to, nullptr,
-                            "sendMessage");
+                            "sendMessage", detail::convert_send_options(options));
     }
 
     Message sendMessageWithMarkup(ChatId chat_id, const std::string& text,
                                    std::optional<MessageId> reply_to,
                                    const ReplyMarkup& markup) override {
+        return sendMessageWithMarkup(chat_id, text, reply_to, markup, default_parse_mode_.load(), {});
+    }
+
+    Message sendMessageWithMarkup(ChatId chat_id, const std::string& text,
+                                   std::optional<MessageId> reply_to,
+                                   const ReplyMarkup& markup,
+                                   ParseMode parse_mode,
+                                   const SendMessageOptions& options) override {
+        auto pm = parse_mode == ParseMode::None ? default_parse_mode_.load() : parse_mode;
         auto content = td_api::make_object<td_api::inputMessageText>();
-        content->text_ = detail::make_text(text);
+        content->text_ = detail::parse_text(text, pm);
         return send_content(chat_id, std::move(content), reply_to,
-                            detail::build_reply_markup(markup), "sendMessage");
+                            detail::build_reply_markup(markup), "sendMessage",
+                            detail::convert_send_options(options));
+    }
+
+    Message sendFormattedMessage(ChatId chat_id, const FormattedText& text,
+                                 std::optional<MessageId> reply_to,
+                                 const std::optional<ReplyMarkup>& markup,
+                                 const SendMessageOptions& options) override {
+        auto content = td_api::make_object<td_api::inputMessageText>();
+        content->text_ = detail::convert_formatted_text(text);
+        td_api::object_ptr<td_api::ReplyMarkup> rm = markup ? detail::build_reply_markup(*markup) : nullptr;
+        return send_content(chat_id, std::move(content), reply_to,
+                            std::move(rm), "sendFormattedMessage",
+                            detail::convert_send_options(options));
+    }
+
+    void setDefaultParseMode(ParseMode mode) override {
+        default_parse_mode_.store(mode);
+    }
+
+    ParseMode getDefaultParseMode() const override {
+        return default_parse_mode_.load();
     }
 
     void editMessage(ChatId chat_id, MessageId msg_id,
                      const std::string& text) override {
+        editMessage(chat_id, msg_id, text, default_parse_mode_.load());
+    }
+
+    void editMessage(ChatId chat_id, MessageId msg_id,
+                     const std::string& text, ParseMode parse_mode) override {
+        auto pm = parse_mode == ParseMode::None ? default_parse_mode_.load() : parse_mode;
         auto content = td_api::make_object<td_api::inputMessageText>();
-        content->text_ = detail::make_text(text);
+        content->text_ = detail::parse_text(text, pm);
         auto result = td.send_sync(
             td_api::make_object<td_api::editMessageText>(
                 chat_id, msg_id, nullptr, std::move(content)));
@@ -555,9 +612,15 @@ public:
 
     void editMessageCaption(ChatId chat_id, MessageId msg_id,
                             const std::string& caption) override {
+        editMessageCaption(chat_id, msg_id, caption, default_parse_mode_.load());
+    }
+
+    void editMessageCaption(ChatId chat_id, MessageId msg_id,
+                            const std::string& caption, ParseMode parse_mode) override {
+        auto pm = parse_mode == ParseMode::None ? default_parse_mode_.load() : parse_mode;
         auto result = td.send_sync(
             td_api::make_object<td_api::editMessageCaption>(
-                chat_id, msg_id, nullptr, detail::make_text(caption)));
+                chat_id, msg_id, nullptr, detail::parse_text(caption, pm)));
         check_error(result, "editMessageCaption");
     }
 
@@ -576,10 +639,9 @@ public:
         check_error(result, "deleteMessages");
     }
 
-    void setReaction(ChatId chat_id, MessageId msg_id,
-                     const std::string& emoji) override {
-        throw std::runtime_error(
-            "reactions are not supported by the linked TDLib version");
+    void setReaction(ChatId /*chat_id*/, MessageId /*msg_id*/,
+                     const std::string& /*emoji*/) override {
+        // Message reactions are not supported in TDLib 1.8.0
     }
 
     Message forwardMessage(ChatId from_chat, MessageId msg_id,
@@ -587,8 +649,7 @@ public:
         std::vector<std::int64_t> ids = {msg_id};
         auto result = td.send_sync(
             td_api::make_object<td_api::forwardMessages>(
-                to_chat, from_chat, std::move(ids), nullptr, false, false,
-                false));
+                to_chat, from_chat, std::move(ids), nullptr, false, false, false));
         check_error(result, "forwardMessage");
         if (result && result->get_id() == td_api::messages::ID) {
             auto& msgs = static_cast<td_api::messages&>(*result);
@@ -623,41 +684,99 @@ public:
         check_error(result, "unpinAllMessages");
     }
 
+    // ---- Scheduled messages ----
+
+    std::vector<Message> getScheduledMessages(ChatId chat_id) override {
+        auto result = td.send_sync(
+            td_api::make_object<td_api::getChatScheduledMessages>(chat_id));
+        check_error(result, "getScheduledMessages");
+        std::vector<Message> out;
+        if (result && result->get_id() == td_api::messages::ID) {
+            auto& msgs = static_cast<td_api::messages&>(*result);
+            auto ct = lookup_chat_type(chat_id);
+            for (auto& m : msgs.messages_) {
+                if (m) out.push_back(
+                    detail::convert_message(*m, ct, weak_from_this()));
+            }
+        }
+        return out;
+    }
+
+    void sendScheduledMessageNow(ChatId chat_id, MessageId message_id) override {
+        auto result = td.send_sync(
+            td_api::make_object<td_api::editMessageSchedulingState>(chat_id, message_id, nullptr));
+        check_error(result, "sendScheduledMessageNow");
+    }
+
+    void deleteScheduledMessages(ChatId chat_id, std::vector<MessageId> message_ids) override {
+        auto result = td.send_sync(
+            td_api::make_object<td_api::deleteMessages>(chat_id, std::move(message_ids), true));
+        check_error(result, "deleteScheduledMessages");
+    }
+
     // ---- Media messaging ----
 
     Message sendPhoto(ChatId chat_id, const InputFile& file,
                       const std::string& caption,
                       std::optional<MessageId> reply_to) override {
+        return sendPhoto(chat_id, file, caption, reply_to, default_parse_mode_.load(), {});
+    }
+
+    Message sendPhoto(ChatId chat_id, const InputFile& file,
+                      const std::string& caption,
+                      std::optional<MessageId> reply_to,
+                      ParseMode parse_mode,
+                      const SendMessageOptions& options) override {
+        auto pm = parse_mode == ParseMode::None ? default_parse_mode_.load() : parse_mode;
         auto content = td_api::make_object<td_api::inputMessagePhoto>();
         content->photo_ = td_api::make_object<td_api::inputFileLocal>(file.path);
-        if (!caption.empty()) content->caption_ = detail::make_text(caption);
+        if (!caption.empty()) content->caption_ = detail::parse_text(caption, pm);
         return send_content(chat_id, std::move(content), reply_to, nullptr,
-                            "sendPhoto");
+                            "sendPhoto", detail::convert_send_options(options));
     }
 
     Message sendVideo(ChatId chat_id, const InputFile& file,
                       const std::string& caption,
                       std::optional<MessageId> reply_to,
                       int width, int height, int duration) override {
+        return sendVideo(chat_id, file, caption, reply_to, default_parse_mode_.load(), {}, width, height, duration);
+    }
+
+    Message sendVideo(ChatId chat_id, const InputFile& file,
+                      const std::string& caption,
+                      std::optional<MessageId> reply_to,
+                      ParseMode parse_mode,
+                      const SendMessageOptions& options,
+                      int width, int height, int duration) override {
+        auto pm = parse_mode == ParseMode::None ? default_parse_mode_.load() : parse_mode;
         auto content = td_api::make_object<td_api::inputMessageVideo>();
         content->video_ = td_api::make_object<td_api::inputFileLocal>(file.path);
-        if (!caption.empty()) content->caption_ = detail::make_text(caption);
+        if (!caption.empty()) content->caption_ = detail::parse_text(caption, pm);
         content->width_ = width;
         content->height_ = height;
         content->duration_ = duration;
         return send_content(chat_id, std::move(content), reply_to, nullptr,
-                            "sendVideo");
+                            "sendVideo", detail::convert_send_options(options));
     }
 
     Message sendDocument(ChatId chat_id, const InputFile& file,
                          const std::string& caption,
                          std::optional<MessageId> reply_to) override {
+        return sendDocument(chat_id, file, caption, reply_to, default_parse_mode_.load(), {});
+    }
+
+    Message sendDocument(ChatId chat_id, const InputFile& file,
+                         const std::string& caption,
+                         std::optional<MessageId> reply_to,
+                         ParseMode parse_mode,
+                         const SendMessageOptions& options) override {
+        auto pm = parse_mode == ParseMode::None ? default_parse_mode_.load() : parse_mode;
         auto content = td_api::make_object<td_api::inputMessageDocument>();
         content->document_ = td_api::make_object<td_api::inputFileLocal>(
             file.path);
-        if (!caption.empty()) content->caption_ = detail::make_text(caption);
+        if (!caption.empty()) content->caption_ = detail::parse_text(caption, pm);
         return send_content(chat_id, std::move(content), reply_to, nullptr,
-                            "sendDocument");
+                            "sendDocument", detail::convert_send_options(options));
     }
 
     Message sendAudio(ChatId chat_id, const InputFile& file,
@@ -665,31 +784,59 @@ public:
                       std::optional<MessageId> reply_to,
                       int duration, const std::string& title,
                       const std::string& performer) override {
+        return sendAudio(chat_id, file, caption, reply_to, default_parse_mode_.load(), {}, duration, title, performer);
+    }
+
+    Message sendAudio(ChatId chat_id, const InputFile& file,
+                      const std::string& caption,
+                      std::optional<MessageId> reply_to,
+                      ParseMode parse_mode,
+                      const SendMessageOptions& options,
+                      int duration,
+                      const std::string& title, const std::string& performer) override {
+        auto pm = parse_mode == ParseMode::None ? default_parse_mode_.load() : parse_mode;
         auto content = td_api::make_object<td_api::inputMessageAudio>();
         content->audio_ = td_api::make_object<td_api::inputFileLocal>(file.path);
-        if (!caption.empty()) content->caption_ = detail::make_text(caption);
+        if (!caption.empty()) content->caption_ = detail::parse_text(caption, pm);
         content->duration_ = duration;
         content->title_ = title;
         content->performer_ = performer;
         return send_content(chat_id, std::move(content), reply_to, nullptr,
-                            "sendAudio");
+                            "sendAudio", detail::convert_send_options(options));
     }
 
     Message sendVoiceNote(ChatId chat_id, const InputFile& file,
                           const std::string& caption,
                           std::optional<MessageId> reply_to,
                           int duration) override {
+        return sendVoiceNote(chat_id, file, caption, reply_to, default_parse_mode_.load(), {}, duration);
+    }
+
+    Message sendVoiceNote(ChatId chat_id, const InputFile& file,
+                          const std::string& caption,
+                          std::optional<MessageId> reply_to,
+                          ParseMode parse_mode,
+                          const SendMessageOptions& options,
+                          int duration) override {
+        auto pm = parse_mode == ParseMode::None ? default_parse_mode_.load() : parse_mode;
         auto content = td_api::make_object<td_api::inputMessageVoiceNote>();
         content->voice_note_ = td_api::make_object<td_api::inputFileLocal>(
             file.path);
-        if (!caption.empty()) content->caption_ = detail::make_text(caption);
+        if (!caption.empty()) content->caption_ = detail::parse_text(caption, pm);
         content->duration_ = duration;
         return send_content(chat_id, std::move(content), reply_to, nullptr,
-                            "sendVoiceNote");
+                            "sendVoiceNote", detail::convert_send_options(options));
     }
 
     Message sendVideoNote(ChatId chat_id, const InputFile& file,
                           std::optional<MessageId> reply_to,
+                          int duration, int length) override {
+        return sendVideoNote(chat_id, file, reply_to, {}, duration, length);
+    }
+
+    Message sendVideoNote(ChatId chat_id, const InputFile& file,
+                          std::optional<MessageId> reply_to,
+                          const SendMessageOptions& options,
                           int duration, int length) override {
         auto content = td_api::make_object<td_api::inputMessageVideoNote>();
         content->video_note_ = td_api::make_object<td_api::inputFileLocal>(
@@ -697,31 +844,47 @@ public:
         content->duration_ = duration;
         content->length_ = length;
         return send_content(chat_id, std::move(content), reply_to, nullptr,
-                            "sendVideoNote");
+                            "sendVideoNote", detail::convert_send_options(options));
     }
 
     Message sendAnimation(ChatId chat_id, const InputFile& file,
                           const std::string& caption,
                           std::optional<MessageId> reply_to,
                           int width, int height, int duration) override {
+        return sendAnimation(chat_id, file, caption, reply_to, default_parse_mode_.load(), {}, width, height, duration);
+    }
+
+    Message sendAnimation(ChatId chat_id, const InputFile& file,
+                          const std::string& caption,
+                          std::optional<MessageId> reply_to,
+                          ParseMode parse_mode,
+                          const SendMessageOptions& options,
+                          int width, int height, int duration) override {
+        auto pm = parse_mode == ParseMode::None ? default_parse_mode_.load() : parse_mode;
         auto content = td_api::make_object<td_api::inputMessageAnimation>();
         content->animation_ = td_api::make_object<td_api::inputFileLocal>(
             file.path);
-        if (!caption.empty()) content->caption_ = detail::make_text(caption);
+        if (!caption.empty()) content->caption_ = detail::parse_text(caption, pm);
         content->width_ = width;
         content->height_ = height;
         content->duration_ = duration;
         return send_content(chat_id, std::move(content), reply_to, nullptr,
-                            "sendAnimation");
+                            "sendAnimation", detail::convert_send_options(options));
     }
 
     Message sendSticker(ChatId chat_id, const InputFile& file,
                         std::optional<MessageId> reply_to) override {
+        return sendSticker(chat_id, file, reply_to, {});
+    }
+
+    Message sendSticker(ChatId chat_id, const InputFile& file,
+                        std::optional<MessageId> reply_to,
+                        const SendMessageOptions& options) override {
         auto content = td_api::make_object<td_api::inputMessageSticker>();
         content->sticker_ = td_api::make_object<td_api::inputFileLocal>(
             file.path);
         return send_content(chat_id, std::move(content), reply_to, nullptr,
-                            "sendSticker");
+                            "sendSticker", detail::convert_send_options(options));
     }
 
     // ---- Rich messages ----
@@ -731,8 +894,7 @@ public:
                      const PollConfig& config) override {
         auto content = td_api::make_object<td_api::inputMessagePoll>();
         content->question_ = question;
-        for (auto& o : options)
-            content->options_.push_back(std::move(o));
+        content->options_  = std::move(options);
         content->is_anonymous_ = config.is_anonymous;
         if (config.type == PollType::Quiz) {
             auto quiz = td_api::make_object<td_api::pollTypeQuiz>();
@@ -1079,6 +1241,31 @@ public:
         check_error(result, "unblockUser");
     }
 
+    void setProfilePhoto(const InputFile& photo) override {
+        auto chat_photo = td_api::make_object<td_api::inputChatPhotoStatic>();
+        chat_photo->photo_ = td_api::make_object<td_api::inputFileLocal>(photo.path);
+        auto result = td.send_sync(
+            td_api::make_object<td_api::setProfilePhoto>(std::move(chat_photo)));
+        check_error(result, "setProfilePhoto");
+    }
+
+    void deleteProfilePhoto(std::int64_t profile_photo_id) override {
+        auto result = td.send_sync(
+            td_api::make_object<td_api::deleteProfilePhoto>(profile_photo_id));
+        check_error(result, "deleteProfilePhoto");
+    }
+
+    UserProfilePhotos getUserProfilePhotos(UserId user_id, int offset, int limit) override {
+        auto result = td.send_sync(
+            td_api::make_object<td_api::getUserProfilePhotos>(user_id, offset, limit));
+        check_error(result, "getUserProfilePhotos");
+        if (result && result->get_id() == td_api::chatPhotos::ID) {
+            return detail::convert_user_profile_photos(
+                static_cast<const td_api::chatPhotos&>(*result));
+        }
+        return {};
+    }
+
     // ---- File operations ----
 
     FileInfo getFile(FileId file_id) override {
@@ -1143,10 +1330,10 @@ public:
                 chat_id, query, nullptr, 0, 0, limit, nullptr, 0));
         check_error(result, "searchChatMessages");
         std::vector<Message> out;
-        if (result && result->get_id() == td_api::foundMessages::ID) {
-            auto& fm = static_cast<td_api::foundMessages&>(*result);
+        if (result && result->get_id() == td_api::messages::ID) {
+            auto& msgs = static_cast<td_api::messages&>(*result);
             auto ct = lookup_chat_type(chat_id);
-            for (auto& m : fm.messages_) {
+            for (auto& m : msgs.messages_) {
                 if (m) out.push_back(
                     detail::convert_message(*m, ct, weak_from_this()));
             }
@@ -1180,12 +1367,32 @@ Client::Client(std::int32_t api_id, std::string api_hash)
     impl_->init();
 }
 
+Client::Client(std::int32_t api_id, std::string api_hash, std::shared_ptr<ISessionStorage> storage)
+    : impl_(std::make_shared<ClientImpl>()) {
+    impl_->creds = {api_id, std::move(api_hash)};
+    impl_->storage_ = std::move(storage);
+    impl_->init();
+}
+
 Client::~Client() {
     if (impl_) impl_->td.stop();
 }
 
 Client::Client(Client&&) noexcept = default;
 Client& Client::operator=(Client&&) noexcept = default;
+
+// ---- Storage & Config ----
+std::shared_ptr<ISessionStorage> Client::storage() const {
+    return impl_->storage_;
+}
+
+void Client::setDefaultParseMode(ParseMode mode) {
+    impl_->setDefaultParseMode(mode);
+}
+
+ParseMode Client::getDefaultParseMode() const {
+    return impl_->getDefaultParseMode();
+}
 
 // ---- Auth ----
 void Client::login(const std::string& phone,
@@ -1237,38 +1444,112 @@ Message Client::sendMessage(ChatId c, const std::string& t,
                             std::optional<MessageId> r) {
     return impl_->sendMessage(c, t, r);
 }
+
+Message Client::sendMessage(ChatId c, const std::string& t,
+                            const SendMessageOptions& o,
+                            std::optional<MessageId> r) {
+    return impl_->sendMessage(c, t, r, o.parse_mode, o);
+}
+
+Message Client::sendMessage(ChatId c, const std::string& t,
+                            ParseMode pm,
+                            const SendMessageOptions& o,
+                            std::optional<MessageId> r) {
+    return impl_->sendMessage(c, t, r, pm, o);
+}
+
 Message Client::sendMessage(ChatId c, const std::string& t,
                             const ReplyMarkup& m,
                             std::optional<MessageId> r) {
     return impl_->sendMessageWithMarkup(c, t, r, m);
 }
+
+Message Client::sendMessage(ChatId c, const std::string& t,
+                            const ReplyMarkup& m,
+                            const SendMessageOptions& o,
+                            std::optional<MessageId> r) {
+    return impl_->sendMessageWithMarkup(c, t, r, m, o.parse_mode, o);
+}
+
+Message Client::sendMessage(ChatId c, const std::string& t,
+                            const ReplyMarkup& m,
+                            ParseMode pm,
+                            const SendMessageOptions& o,
+                            std::optional<MessageId> r) {
+    return impl_->sendMessageWithMarkup(c, t, r, m, pm, o);
+}
+
+Message Client::sendFormattedMessage(ChatId c, const FormattedText& t,
+                                     std::optional<MessageId> r,
+                                     const std::optional<ReplyMarkup>& m,
+                                     const SendMessageOptions& o) {
+    return impl_->sendFormattedMessage(c, t, r, m, o);
+}
+
 void Client::editMessage(ChatId c, MessageId m, const std::string& t) {
     impl_->editMessage(c, m, t);
 }
+
+void Client::editMessage(ChatId c, MessageId m, const std::string& t, ParseMode pm) {
+    impl_->editMessage(c, m, t, pm);
+}
+
 void Client::editMessageCaption(ChatId c, MessageId m, const std::string& t) {
     impl_->editMessageCaption(c, m, t);
 }
+
+void Client::editMessageCaption(ChatId c, MessageId m, const std::string& t, ParseMode pm) {
+    impl_->editMessageCaption(c, m, t, pm);
+}
+
 void Client::editMessageReplyMarkup(ChatId c, MessageId m,
                                     const InlineKeyboard& k) {
     impl_->editMessageReplyMarkup(c, m, k);
 }
+
 void Client::deleteMessages(ChatId c, std::vector<MessageId> v) {
     impl_->deleteMessages(c, std::move(v));
 }
+
 void Client::setReaction(ChatId c, MessageId m, const std::string& e) {
     impl_->setReaction(c, m, e);
 }
+
 Message Client::forwardMessage(ChatId f, MessageId m, ChatId t) {
     return impl_->forwardMessage(f, m, t);
 }
+
 void Client::pinMessage(ChatId c, MessageId m, bool d) {
     impl_->pinMessage(c, m, d);
 }
+
 void Client::unpinMessage(ChatId c, MessageId m) {
     impl_->unpinMessage(c, m);
 }
+
 void Client::unpinAllMessages(ChatId c) {
     impl_->unpinAllMessages(c);
+}
+
+// ---- Scheduled messages ----
+Message Client::sendScheduledMessage(ChatId c, const std::string& t,
+                                     Timestamp schedule_date,
+                                     std::optional<MessageId> r) {
+    SendMessageOptions opts;
+    opts.schedule_date = schedule_date;
+    return impl_->sendMessage(c, t, r, impl_->getDefaultParseMode(), opts);
+}
+
+std::vector<Message> Client::getScheduledMessages(ChatId c) {
+    return impl_->getScheduledMessages(c);
+}
+
+void Client::sendScheduledMessageNow(ChatId c, MessageId m) {
+    impl_->sendScheduledMessageNow(c, m);
+}
+
+void Client::deleteScheduledMessages(ChatId c, std::vector<MessageId> v) {
+    impl_->deleteScheduledMessages(c, std::move(v));
 }
 
 // ---- Media messaging ----
@@ -1276,40 +1557,102 @@ Message Client::sendPhoto(ChatId c, const InputFile& f, const std::string& cap,
                           std::optional<MessageId> r) {
     return impl_->sendPhoto(c, f, cap, r);
 }
+
+Message Client::sendPhoto(ChatId c, const InputFile& f, const std::string& cap,
+                          ParseMode pm, const SendMessageOptions& o,
+                          std::optional<MessageId> r) {
+    return impl_->sendPhoto(c, f, cap, r, pm, o);
+}
+
 Message Client::sendVideo(ChatId c, const InputFile& f, const std::string& cap,
                           std::optional<MessageId> r,
                           int w, int h, int d) {
     return impl_->sendVideo(c, f, cap, r, w, h, d);
 }
+
+Message Client::sendVideo(ChatId c, const InputFile& f, const std::string& cap,
+                          ParseMode pm, const SendMessageOptions& o,
+                          std::optional<MessageId> r,
+                          int w, int h, int d) {
+    return impl_->sendVideo(c, f, cap, r, pm, o, w, h, d);
+}
+
 Message Client::sendDocument(ChatId c, const InputFile& f,
                              const std::string& cap,
                              std::optional<MessageId> r) {
     return impl_->sendDocument(c, f, cap, r);
 }
+
+Message Client::sendDocument(ChatId c, const InputFile& f,
+                             const std::string& cap,
+                             ParseMode pm, const SendMessageOptions& o,
+                             std::optional<MessageId> r) {
+    return impl_->sendDocument(c, f, cap, r, pm, o);
+}
+
 Message Client::sendAudio(ChatId c, const InputFile& f, const std::string& cap,
                           std::optional<MessageId> r, int dur,
                           const std::string& title,
                           const std::string& performer) {
     return impl_->sendAudio(c, f, cap, r, dur, title, performer);
 }
+
+Message Client::sendAudio(ChatId c, const InputFile& f, const std::string& cap,
+                          ParseMode pm, const SendMessageOptions& o,
+                          std::optional<MessageId> r, int dur,
+                          const std::string& title,
+                          const std::string& performer) {
+    return impl_->sendAudio(c, f, cap, r, pm, o, dur, title, performer);
+}
+
 Message Client::sendVoiceNote(ChatId c, const InputFile& f,
                               const std::string& cap,
                               std::optional<MessageId> r, int d) {
     return impl_->sendVoiceNote(c, f, cap, r, d);
 }
+
+Message Client::sendVoiceNote(ChatId c, const InputFile& f,
+                              const std::string& cap,
+                              ParseMode pm, const SendMessageOptions& o,
+                              std::optional<MessageId> r, int d) {
+    return impl_->sendVoiceNote(c, f, cap, r, pm, o, d);
+}
+
 Message Client::sendVideoNote(ChatId c, const InputFile& f,
                               std::optional<MessageId> r, int d, int l) {
     return impl_->sendVideoNote(c, f, r, d, l);
 }
+
+Message Client::sendVideoNote(ChatId c, const InputFile& f,
+                              const SendMessageOptions& o,
+                              std::optional<MessageId> r, int d, int l) {
+    return impl_->sendVideoNote(c, f, r, o, d, l);
+}
+
 Message Client::sendAnimation(ChatId c, const InputFile& f,
                               const std::string& cap,
                               std::optional<MessageId> r,
                               int w, int h, int d) {
     return impl_->sendAnimation(c, f, cap, r, w, h, d);
 }
+
+Message Client::sendAnimation(ChatId c, const InputFile& f,
+                              const std::string& cap,
+                              ParseMode pm, const SendMessageOptions& o,
+                              std::optional<MessageId> r,
+                              int w, int h, int d) {
+    return impl_->sendAnimation(c, f, cap, r, pm, o, w, h, d);
+}
+
 Message Client::sendSticker(ChatId c, const InputFile& f,
                             std::optional<MessageId> r) {
     return impl_->sendSticker(c, f, r);
+}
+
+Message Client::sendSticker(ChatId c, const InputFile& f,
+                            const SendMessageOptions& o,
+                            std::optional<MessageId> r) {
+    return impl_->sendSticker(c, f, r, o);
 }
 
 // ---- Rich messages ----
@@ -1391,6 +1734,11 @@ std::string Client::getChatInviteLink(ChatId c) {
 // ---- User operations ----
 void Client::blockUser(UserId u) { impl_->blockUser(u); }
 void Client::unblockUser(UserId u) { impl_->unblockUser(u); }
+void Client::setProfilePhoto(const InputFile& f) { impl_->setProfilePhoto(f); }
+void Client::deleteProfilePhoto(std::int64_t pid) { impl_->deleteProfilePhoto(pid); }
+UserProfilePhotos Client::getUserProfilePhotos(UserId u, int off, int lim) {
+    return impl_->getUserProfilePhotos(u, off, lim);
+}
 
 // ---- File operations ----
 FileInfo Client::getFile(FileId f) { return impl_->getFile(f); }
@@ -1458,7 +1806,48 @@ void Client::onCallbackQuery(
         {std::move(filter), std::move(cb)});
 }
 
-// ---- Event loop (fixed: uses condition_variable instead of busy-wait) ----
+// ---- Async Coroutines (C++20) ----
+Task<Message> Client::asyncSendMessage(ChatId chat_id, const std::string& text,
+                                       std::optional<MessageId> reply_to) {
+    co_return sendMessage(chat_id, text, reply_to);
+}
+
+Task<Message> Client::asyncSendMessage(ChatId chat_id, const std::string& text,
+                                       const SendMessageOptions& options,
+                                       std::optional<MessageId> reply_to) {
+    co_return sendMessage(chat_id, text, options, reply_to);
+}
+
+Task<Message> Client::asyncSendMessage(ChatId chat_id, const std::string& text,
+                                       ParseMode parse_mode,
+                                       const SendMessageOptions& options,
+                                       std::optional<MessageId> reply_to) {
+    co_return sendMessage(chat_id, text, parse_mode, options, reply_to);
+}
+
+Task<User> Client::asyncGetMe() {
+    co_return getMe();
+}
+
+Task<User> Client::asyncGetUser(UserId id) {
+    co_return getUser(id);
+}
+
+Task<Chat> Client::asyncGetChat(ChatId id) {
+    co_return getChat(id);
+}
+
+Task<void> Client::asyncDeleteMessages(ChatId chat_id, std::vector<MessageId> message_ids) {
+    deleteMessages(chat_id, std::move(message_ids));
+    co_return;
+}
+
+Task<void> Client::asyncEditMessage(ChatId chat_id, MessageId msg_id, const std::string& text) {
+    editMessage(chat_id, msg_id, text);
+    co_return;
+}
+
+// ---- Event loop ----
 void Client::run() {
     impl_->event_loop_running = true;
     CPPGRAM_INFO("client", "event loop started (blocking)");

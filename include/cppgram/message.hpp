@@ -23,6 +23,11 @@ public:
     MediaType   media{MediaType::None};
     std::optional<MessageId> reply_to;
     std::optional<ForwardInfo> forward_info;
+    std::optional<Timestamp>   schedule_date;
+
+    // Entities
+    std::vector<MessageEntity> entities;
+    std::vector<MessageEntity> caption_entities;
 
     // Media attachments
     std::optional<Photo>          photo;
@@ -46,9 +51,13 @@ public:
 
     // ---- Methods ----
     Message reply(const std::string& body);
+    Message reply(const std::string& body, ParseMode parse_mode);
     Message reply(const std::string& body, const ReplyMarkup& markup);
+    Message reply(const std::string& body, const ReplyMarkup& markup, ParseMode parse_mode);
     void    edit(const std::string& body);
+    void    edit(const std::string& body, ParseMode parse_mode);
     void    editCaption(const std::string& new_caption);
+    void    editCaption(const std::string& new_caption, ParseMode parse_mode);
     void    editReplyMarkup(const InlineKeyboard& markup);
     void    deleteMessage();
     void    react(const std::string& emoji);

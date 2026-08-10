@@ -12,6 +12,8 @@
 #include "cppgram/keyboard.hpp"
 #include "cppgram/callback_query.hpp"
 #include "cppgram/handlers.hpp"
+#include "cppgram/storage.hpp"
+#include "cppgram/coro.hpp"
 
 namespace cppgram {
 class ClientImpl;
@@ -20,12 +22,18 @@ class Client {
 public:
     Client();
     Client(std::int32_t api_id, std::string api_hash);
+    Client(std::int32_t api_id, std::string api_hash, std::shared_ptr<ISessionStorage> storage);
     ~Client();
 
     Client(Client&&) noexcept;
     Client& operator=(Client&&) noexcept;
     Client(const Client&) = delete;
     Client& operator=(const Client&) = delete;
+
+    // ---- Storage & Config ----
+    std::shared_ptr<ISessionStorage> storage() const;
+    void setDefaultParseMode(ParseMode mode);
+    ParseMode getDefaultParseMode() const;
 
     // ---- Auth ----
     void login(const std::string& phone,
@@ -45,10 +53,32 @@ public:
     Message sendMessage(ChatId chat_id, const std::string& text,
                         std::optional<MessageId> reply_to = std::nullopt);
     Message sendMessage(ChatId chat_id, const std::string& text,
+                        const SendMessageOptions& options,
+                        std::optional<MessageId> reply_to = std::nullopt);
+    Message sendMessage(ChatId chat_id, const std::string& text,
+                        ParseMode parse_mode,
+                        const SendMessageOptions& options = {},
+                        std::optional<MessageId> reply_to = std::nullopt);
+    Message sendMessage(ChatId chat_id, const std::string& text,
                         const ReplyMarkup& markup,
                         std::optional<MessageId> reply_to = std::nullopt);
+    Message sendMessage(ChatId chat_id, const std::string& text,
+                        const ReplyMarkup& markup,
+                        const SendMessageOptions& options,
+                        std::optional<MessageId> reply_to = std::nullopt);
+    Message sendMessage(ChatId chat_id, const std::string& text,
+                        const ReplyMarkup& markup,
+                        ParseMode parse_mode,
+                        const SendMessageOptions& options = {},
+                        std::optional<MessageId> reply_to = std::nullopt);
+    Message sendFormattedMessage(ChatId chat_id, const FormattedText& text,
+                                 std::optional<MessageId> reply_to = std::nullopt,
+                                 const std::optional<ReplyMarkup>& markup = std::nullopt,
+                                 const SendMessageOptions& options = {});
     void    editMessage(ChatId, MessageId, const std::string& text);
+    void    editMessage(ChatId, MessageId, const std::string& text, ParseMode parse_mode);
     void    editMessageCaption(ChatId, MessageId, const std::string& caption);
+    void    editMessageCaption(ChatId, MessageId, const std::string& caption, ParseMode parse_mode);
     void    editMessageReplyMarkup(ChatId, MessageId, const InlineKeyboard& markup);
     void    deleteMessages(ChatId, std::vector<MessageId>);
     void    setReaction(ChatId, MessageId, const std::string& emoji);
@@ -57,19 +87,51 @@ public:
     void    unpinMessage(ChatId, MessageId);
     void    unpinAllMessages(ChatId);
 
+    // ---- Scheduled messages ----
+    Message sendScheduledMessage(ChatId chat_id, const std::string& text,
+                                 Timestamp schedule_date,
+                                 std::optional<MessageId> reply_to = std::nullopt);
+    std::vector<Message> getScheduledMessages(ChatId chat_id);
+    void sendScheduledMessageNow(ChatId chat_id, MessageId message_id);
+    void deleteScheduledMessages(ChatId chat_id, std::vector<MessageId> message_ids);
+
     // ---- Media messaging ----
     Message sendPhoto(ChatId, const InputFile&,
                       const std::string& caption = "",
+                      std::optional<MessageId> reply_to = std::nullopt);
+    Message sendPhoto(ChatId, const InputFile&,
+                      const std::string& caption,
+                      ParseMode parse_mode,
+                      const SendMessageOptions& options = {},
                       std::optional<MessageId> reply_to = std::nullopt);
     Message sendVideo(ChatId, const InputFile&,
                       const std::string& caption = "",
                       std::optional<MessageId> reply_to = std::nullopt,
                       int width = 0, int height = 0, int duration = 0);
+    Message sendVideo(ChatId, const InputFile&,
+                      const std::string& caption,
+                      ParseMode parse_mode,
+                      const SendMessageOptions& options = {},
+                      std::optional<MessageId> reply_to = std::nullopt,
+                      int width = 0, int height = 0, int duration = 0);
     Message sendDocument(ChatId, const InputFile&,
                          const std::string& caption = "",
                          std::optional<MessageId> reply_to = std::nullopt);
+    Message sendDocument(ChatId, const InputFile&,
+                         const std::string& caption,
+                         ParseMode parse_mode,
+                         const SendMessageOptions& options = {},
+                         std::optional<MessageId> reply_to = std::nullopt);
     Message sendAudio(ChatId, const InputFile&,
                       const std::string& caption = "",
+                      std::optional<MessageId> reply_to = std::nullopt,
+                      int duration = 0,
+                      const std::string& title = "",
+                      const std::string& performer = "");
+    Message sendAudio(ChatId, const InputFile&,
+                      const std::string& caption,
+                      ParseMode parse_mode,
+                      const SendMessageOptions& options = {},
                       std::optional<MessageId> reply_to = std::nullopt,
                       int duration = 0,
                       const std::string& title = "",
@@ -78,14 +140,33 @@ public:
                           const std::string& caption = "",
                           std::optional<MessageId> reply_to = std::nullopt,
                           int duration = 0);
+    Message sendVoiceNote(ChatId, const InputFile&,
+                          const std::string& caption,
+                          ParseMode parse_mode,
+                          const SendMessageOptions& options = {},
+                          std::optional<MessageId> reply_to = std::nullopt,
+                          int duration = 0);
     Message sendVideoNote(ChatId, const InputFile&,
+                          std::optional<MessageId> reply_to = std::nullopt,
+                          int duration = 0, int length = 0);
+    Message sendVideoNote(ChatId, const InputFile&,
+                          const SendMessageOptions& options,
                           std::optional<MessageId> reply_to = std::nullopt,
                           int duration = 0, int length = 0);
     Message sendAnimation(ChatId, const InputFile&,
                           const std::string& caption = "",
                           std::optional<MessageId> reply_to = std::nullopt,
                           int width = 0, int height = 0, int duration = 0);
+    Message sendAnimation(ChatId, const InputFile&,
+                          const std::string& caption,
+                          ParseMode parse_mode,
+                          const SendMessageOptions& options = {},
+                          std::optional<MessageId> reply_to = std::nullopt,
+                          int width = 0, int height = 0, int duration = 0);
     Message sendSticker(ChatId, const InputFile&,
+                        std::optional<MessageId> reply_to = std::nullopt);
+    Message sendSticker(ChatId, const InputFile&,
+                        const SendMessageOptions& options,
                         std::optional<MessageId> reply_to = std::nullopt);
 
     // ---- Rich messages ----
@@ -122,6 +203,9 @@ public:
     // ---- User operations ----
     void blockUser(UserId);
     void unblockUser(UserId);
+    void setProfilePhoto(const InputFile& photo);
+    void deleteProfilePhoto(std::int64_t profile_photo_id);
+    UserProfilePhotos getUserProfilePhotos(UserId user_id, int offset = 0, int limit = 100);
 
     // ---- File operations ----
     FileInfo    getFile(FileId);
@@ -151,6 +235,22 @@ public:
     void onCallbackQuery(std::function<void(CallbackQuery)> cb);
     void onCallbackQuery(std::function<bool(const CallbackQuery&)> filter,
                          std::function<void(CallbackQuery)> cb);
+
+    // ---- Async Coroutines (C++20) ----
+    Task<Message> asyncSendMessage(ChatId chat_id, const std::string& text,
+                                   std::optional<MessageId> reply_to = std::nullopt);
+    Task<Message> asyncSendMessage(ChatId chat_id, const std::string& text,
+                                   const SendMessageOptions& options,
+                                   std::optional<MessageId> reply_to = std::nullopt);
+    Task<Message> asyncSendMessage(ChatId chat_id, const std::string& text,
+                                   ParseMode parse_mode,
+                                   const SendMessageOptions& options = {},
+                                   std::optional<MessageId> reply_to = std::nullopt);
+    Task<User>    asyncGetMe();
+    Task<User>    asyncGetUser(UserId id);
+    Task<Chat>    asyncGetChat(ChatId id);
+    Task<void>    asyncDeleteMessages(ChatId chat_id, std::vector<MessageId> message_ids);
+    Task<void>    asyncEditMessage(ChatId chat_id, MessageId msg_id, const std::string& text);
 
     // ---- Event loop ----
     void run();

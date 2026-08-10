@@ -27,6 +27,8 @@ using Handler = std::function<void(Object)>;
 /// Thin async wrapper around td::ClientManager.
 class TdLibAdapter {
 public:
+    using Object = cppgram::detail::Object;
+
     TdLibAdapter() {
         td::ClientManager::execute(
             td_api::make_object<td_api::setLogVerbosityLevel>(1));

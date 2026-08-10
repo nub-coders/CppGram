@@ -1,7 +1,23 @@
 #pragma once
+
+/**
+ * @file td_conversions.hpp
+ * @brief Type conversion and serialization layer between TDLib and CppGram domain models.
+ * 
+ * Provides bidirectional conversion helpers for:
+ * - Enumerations (ChatType, MediaType, MessageEntityType, ParseMode)
+ * - Media types (Photo, Video, Audio, Document, Voice/Video notes, Stickers, Polls)
+ * - Keyboards and interactive reply markups
+ * - Core entities (User, Chat, Message, CallbackQuery)
+ * - Text formatting and TDLib entity serialization
+ */
+
 #include <td/telegram/td_api.h>
 #include <td/telegram/td_api.hpp>
 #include <memory>
+#include <optional>
+#include <string>
+#include <vector>
 #include "cppgram/types.hpp"
 #include "cppgram/user.hpp"
 #include "cppgram/chat.hpp"
@@ -15,7 +31,19 @@ namespace cppgram::detail {
 
 namespace td_api = td::td_api;
 
-// ---- ChatType ----
+// Forward declaration
+inline std::vector<MessageEntity> convert_entities(
+    const std::vector<td_api::object_ptr<td_api::textEntity>>& entities);
+
+// ============================================================================
+// Type and Enumeration Conversions
+// ============================================================================
+
+/**
+ * @brief Maps a TDLib ChatType object to the CppGram ChatType enum.
+ * @param ct The TDLib ChatType object.
+ * @return Corresponding CppGram ChatType.
+ */
 inline ChatType convert_chat_type(const td_api::ChatType& ct) {
     switch (ct.get_id()) {
         case td_api::chatTypePrivate::ID:    return ChatType::Private;
@@ -29,7 +57,11 @@ inline ChatType convert_chat_type(const td_api::ChatType& ct) {
     }
 }
 
-// ---- MediaType ----
+/**
+ * @brief Determines the CppGram MediaType from a TDLib MessageContent object.
+ * @param mc The TDLib MessageContent object.
+ * @return Detected MediaType classification.
+ */
 inline MediaType classify_media(const td_api::MessageContent& mc) {
     switch (mc.get_id()) {
         case td_api::messagePhoto::ID:       return MediaType::Photo;
@@ -49,7 +81,15 @@ inline MediaType classify_media(const td_api::MessageContent& mc) {
     }
 }
 
-// ---- PhotoSize ----
+// ============================================================================
+// Photo and Thumbnail Conversions
+// ============================================================================
+
+/**
+ * @brief Converts a TDLib photoSize object to a PhotoSize domain model.
+ * @param ps The TDLib photoSize instance.
+ * @return Converted PhotoSize domain model.
+ */
 inline PhotoSize convert_photo_size(const td_api::photoSize& ps) {
     PhotoSize out;
     out.width = ps.width_;
@@ -63,6 +103,11 @@ inline PhotoSize convert_photo_size(const td_api::photoSize& ps) {
     return out;
 }
 
+/**
+ * @brief Converts an optional TDLib thumbnail pointer to a PhotoSize domain model.
+ * @param t Pointer to TDLib thumbnail (may be null).
+ * @return PhotoSize if present and valid, std::nullopt otherwise.
+ */
 inline std::optional<PhotoSize> convert_thumbnail(const td_api::thumbnail* t) {
     if (!t || !t->file_) return std::nullopt;
     PhotoSize ps;
@@ -75,7 +120,15 @@ inline std::optional<PhotoSize> convert_thumbnail(const td_api::thumbnail* t) {
     return ps;
 }
 
-// ---- Media extraction ----
+// ============================================================================
+// Media Extraction from Message Content
+// ============================================================================
+
+/**
+ * @brief Extracts specific media payloads and captions from TDLib MessageContent into a Message.
+ * @param mc The TDLib message content object.
+ * @param out Target Message domain entity to populate.
+ */
 inline void extract_media(const td_api::MessageContent& mc, Message& out) {
     switch (mc.get_id()) {
     case td_api::messagePhoto::ID: {
@@ -210,7 +263,7 @@ inline void extract_media(const td_api::MessageContent& mc, Message& out) {
             si.width = ms.sticker_->width_;
             si.height = ms.sticker_->height_;
             si.emoji = ms.sticker_->emoji_;
-            si.is_animated = false;
+            si.is_animated = ms.sticker_->is_animated_;
             si.is_video = false;
             if (ms.sticker_->sticker_) {
                 si.file_id = ms.sticker_->sticker_->id_;
@@ -228,11 +281,11 @@ inline void extract_media(const td_api::MessageContent& mc, Message& out) {
         if (mp.poll_) {
             Poll p;
             p.id = mp.poll_->id_;
-            if (!mp.poll_->question_.empty()) p.question = mp.poll_->question_;
+            p.question = mp.poll_->question_;
             for (auto& o : mp.poll_->options_) {
                 if (o) {
                     PollOption po;
-                    if (!o->text_.empty()) po.text = o->text_;
+                    po.text = o->text_;
                     po.voter_count = o->voter_count_;
                     p.options.push_back(std::move(po));
                 }
@@ -314,7 +367,15 @@ inline void extract_media(const td_api::MessageContent& mc, Message& out) {
     }
 }
 
-// ---- Inline keyboard ----
+// ============================================================================
+// Keyboard and Reply Markup Conversions
+// ============================================================================
+
+/**
+ * @brief Converts a TDLib ReplyMarkup into a CppGram InlineKeyboard (if applicable).
+ * @param rm Pointer to the TDLib reply markup object.
+ * @return InlineKeyboard if the markup is an inline keyboard, std::nullopt otherwise.
+ */
 inline std::optional<InlineKeyboard> convert_reply_markup(
         const td_api::ReplyMarkup* rm) {
     if (!rm) return std::nullopt;
@@ -355,7 +416,11 @@ inline std::optional<InlineKeyboard> convert_reply_markup(
     return out;
 }
 
-// ---- Build TDLib ReplyMarkup from CppGram types ----
+/**
+ * @brief Serializes a CppGram ReplyMarkup variant into the appropriate TDLib ReplyMarkup object.
+ * @param rm The CppGram reply markup variant (InlineKeyboard, ReplyKeyboard, RemoveKeyboard, ForceReply).
+ * @return TDLib object pointer to the corresponding ReplyMarkup, or nullptr if none.
+ */
 inline td_api::object_ptr<td_api::ReplyMarkup> build_reply_markup(
         const ReplyMarkup& rm) {
     if (auto* ik = std::get_if<InlineKeyboard>(&rm)) {
@@ -422,24 +487,37 @@ inline td_api::object_ptr<td_api::ReplyMarkup> build_reply_markup(
     return nullptr;
 }
 
-// ---- Build TDLib InlineKeyboard from CppGram InlineKeyboard ----
+/**
+ * @brief Helper to convert a typed InlineKeyboard into a TDLib ReplyMarkup.
+ * @param ik The inline keyboard structure.
+ * @return TDLib object pointer to the reply markup.
+ */
 inline td_api::object_ptr<td_api::ReplyMarkup> build_inline_keyboard(
         const InlineKeyboard& ik) {
     ReplyMarkup rm = ik;
     return build_reply_markup(rm);
 }
 
-// ---- User ----
+// ============================================================================
+// User and Chat Model Conversions
+// ============================================================================
+
+/**
+ * @brief Converts a TDLib user object into a CppGram User domain entity.
+ * @param u The TDLib user object.
+ * @param backend Weak pointer to the backend client implementation.
+ * @return Converted User instance.
+ */
 inline User convert_user(const td_api::user& u,
                          std::weak_ptr<IBackend> backend = {}) {
     User out;
     out.id           = u.id_;
     out.first_name   = u.first_name_;
     out.last_name    = u.last_name_;
-    if (!u.username_.empty())
-        out.username = u.username_;
+    out.username     = u.username_;
     out.phone_number = u.phone_number_;
     out.is_bot       = u.type_ && u.type_->get_id() == td_api::userTypeBot::ID;
+    out.is_premium   = false;
     out.is_verified  = u.is_verified_;
     out.is_scam      = u.is_scam_;
     out.is_fake      = u.is_fake_;
@@ -447,7 +525,12 @@ inline User convert_user(const td_api::user& u,
     return out;
 }
 
-// ---- Chat ----
+/**
+ * @brief Converts a TDLib chat object into a CppGram Chat domain entity.
+ * @param c The TDLib chat object.
+ * @param backend Weak pointer to the backend client implementation.
+ * @return Converted Chat instance.
+ */
 inline Chat convert_chat(const td_api::chat& c,
                          std::weak_ptr<IBackend> backend = {}) {
     Chat out;
@@ -457,20 +540,25 @@ inline Chat convert_chat(const td_api::chat& c,
         out.type = convert_chat_type(*c.type_);
     out.has_protected_content = c.has_protected_content_;
     if (c.permissions_) {
-            out.permissions.can_send_messages = c.permissions_->can_send_messages_;
-            out.permissions.can_send_media = c.permissions_->can_send_media_messages_;
+        out.permissions.can_send_messages = c.permissions_->can_send_messages_;
+        out.permissions.can_send_media = c.permissions_->can_send_media_messages_;
         out.permissions.can_send_polls = c.permissions_->can_send_polls_;
         out.permissions.can_send_other = c.permissions_->can_send_other_messages_;
         out.permissions.can_add_web_page_previews = c.permissions_->can_add_web_page_previews_;
         out.permissions.can_change_info = c.permissions_->can_change_info_;
         out.permissions.can_invite_users = c.permissions_->can_invite_users_;
         out.permissions.can_pin_messages = c.permissions_->can_pin_messages_;
+        out.permissions.can_manage_topics = false;
     }
     out._client = backend;
     return out;
 }
 
-// ---- ChatMember ----
+/**
+ * @brief Maps a TDLib ChatMemberStatus object to the CppGram ChatMemberStatus enum.
+ * @param s The TDLib chat member status object.
+ * @return Corresponding ChatMemberStatus enum value.
+ */
 inline ChatMemberStatus convert_member_status(const td_api::ChatMemberStatus& s) {
     switch (s.get_id()) {
         case td_api::chatMemberStatusCreator::ID:       return ChatMemberStatus::Creator;
@@ -483,7 +571,11 @@ inline ChatMemberStatus convert_member_status(const td_api::ChatMemberStatus& s)
     }
 }
 
-// ---- Build TDLib ChatPermissions ----
+/**
+ * @brief Constructs a TDLib chatPermissions object from CppGram ChatPermissions settings.
+ * @param p CppGram ChatPermissions configuration.
+ * @return TDLib chatPermissions object pointer.
+ */
 inline td_api::object_ptr<td_api::chatPermissions> build_chat_permissions(
         const ChatPermissions& p) {
     auto out = td_api::make_object<td_api::chatPermissions>();
@@ -498,7 +590,11 @@ inline td_api::object_ptr<td_api::chatPermissions> build_chat_permissions(
     return out;
 }
 
-// ---- FileInfo ----
+/**
+ * @brief Converts a TDLib file object into a CppGram FileInfo descriptor.
+ * @param f The TDLib file object.
+ * @return Converted FileInfo instance.
+ */
 inline FileInfo convert_file(const td_api::file& f) {
     FileInfo out;
     out.file_id = f.id_;
@@ -519,24 +615,41 @@ inline FileInfo convert_file(const td_api::file& f) {
     return out;
 }
 
-// ---- Message ----
+// ============================================================================
+// Message and Callback Query Conversions
+// ============================================================================
+
+/**
+ * @brief Converts a TDLib message into a full CppGram Message domain object.
+ * @param m The TDLib message object.
+ * @param chat_type Resolved chat type context.
+ * @param backend Weak pointer to the backend client implementation.
+ * @return Converted Message instance.
+ */
 inline Message convert_message(const td_api::message& m,
-                               ChatType chat_type,
+                               ChatType chat_type = ChatType::Unknown,
                                std::weak_ptr<IBackend> backend = {}) {
     Message out;
-    out.id       = m.id_;
-    out.chat_id  = m.chat_id_;
+    out.id        = m.id_;
+    out.chat_id   = m.chat_id_;
     out.chat_type = chat_type;
-    out.outgoing = m.is_outgoing_;
-    out.date     = std::chrono::system_clock::from_time_t(m.date_);
+    out.outgoing  = m.is_outgoing_;
+    out.date      = std::chrono::system_clock::from_time_t(m.date_);
 
+    if (m.scheduling_state_ && m.scheduling_state_->get_id() == td_api::messageSchedulingStateSendAtDate::ID) {
+        auto& ss = static_cast<const td_api::messageSchedulingStateSendAtDate&>(*m.scheduling_state_);
+        out.schedule_date = std::chrono::system_clock::from_time_t(ss.send_date_);
+    }
+
+    // Extract text / caption
     if (m.content_) {
-        // Text
         if (m.content_->get_id() == td_api::messageText::ID) {
             auto& mt = static_cast<const td_api::messageText&>(*m.content_);
-            if (mt.text_) out.text = mt.text_->text_;
+            if (mt.text_) {
+                out.text = mt.text_->text_;
+                out.entities = convert_entities(mt.text_->entities_);
+            }
         }
-
         // Media type + details
         out.media = classify_media(*m.content_);
         extract_media(*m.content_, out);
@@ -545,10 +658,10 @@ inline Message convert_message(const td_api::message& m,
     // Reply markup
     out.reply_markup = convert_reply_markup(m.reply_markup_.get());
 
-        // Reply
-        if (m.reply_to_message_id_) {
-            out.reply_to = m.reply_to_message_id_;
-        }
+    // Reply
+    if (m.reply_to_message_id_ != 0) {
+        out.reply_to = m.reply_to_message_id_;
+    }
 
     // Sender
     if (m.sender_id_ && m.sender_id_->get_id() == td_api::messageSenderUser::ID) {
@@ -587,14 +700,19 @@ inline Message convert_message(const td_api::message& m,
             }
             default: break;
         }
-        out.forward_info = fi;
+        out.forward_info = std::move(fi);
     }
 
     out._client = backend;
     return out;
 }
 
-// ---- CallbackQuery ----
+/**
+ * @brief Converts an incoming TDLib callback query update into a CppGram CallbackQuery.
+ * @param q The TDLib updateNewCallbackQuery object.
+ * @param backend Weak pointer to the backend client implementation.
+ * @return Converted CallbackQuery instance.
+ */
 inline CallbackQuery convert_callback_query(
         const td_api::updateNewCallbackQuery& q,
         std::weak_ptr<IBackend> backend = {}) {
@@ -612,11 +730,214 @@ inline CallbackQuery convert_callback_query(
     return out;
 }
 
-// ---- Build TDLib formattedText ----
+// ============================================================================
+// Text Entity and Formatting Conversions
+// ============================================================================
+
+/**
+ * @brief Maps a TDLib TextEntityType to the CppGram MessageEntityType enum.
+ * @param et The TDLib text entity type.
+ * @return Corresponding MessageEntityType enum value.
+ */
+inline MessageEntityType convert_entity_type(const td_api::TextEntityType& et) {
+    switch (et.get_id()) {
+        case td_api::textEntityTypeMention::ID:       return MessageEntityType::Mention;
+        case td_api::textEntityTypeHashtag::ID:       return MessageEntityType::Hashtag;
+        case td_api::textEntityTypeCashtag::ID:       return MessageEntityType::Cashtag;
+        case td_api::textEntityTypeBotCommand::ID:    return MessageEntityType::BotCommand;
+        case td_api::textEntityTypeUrl::ID:           return MessageEntityType::Url;
+        case td_api::textEntityTypeEmailAddress::ID:  return MessageEntityType::EmailAddress;
+        case td_api::textEntityTypePhoneNumber::ID:   return MessageEntityType::PhoneNumber;
+        case td_api::textEntityTypeBold::ID:          return MessageEntityType::Bold;
+        case td_api::textEntityTypeItalic::ID:        return MessageEntityType::Italic;
+        case td_api::textEntityTypeUnderline::ID:     return MessageEntityType::Underline;
+        case td_api::textEntityTypeStrikethrough::ID: return MessageEntityType::Strikethrough;
+        case td_api::textEntityTypeCode::ID:          return MessageEntityType::Code;
+        case td_api::textEntityTypePre::ID:           return MessageEntityType::Pre;
+        case td_api::textEntityTypePreCode::ID:       return MessageEntityType::PreCode;
+        case td_api::textEntityTypeTextUrl::ID:       return MessageEntityType::TextUrl;
+        case td_api::textEntityTypeMentionName::ID:   return MessageEntityType::MentionName;
+        default:                                      return MessageEntityType::Unknown;
+    }
+}
+
+/**
+ * @brief Constructs a TDLib TextEntityType object from a CppGram MessageEntity.
+ * @param ent The CppGram message entity.
+ * @return TDLib object pointer to the corresponding TextEntityType, or nullptr if unmapped.
+ */
+inline td_api::object_ptr<td_api::TextEntityType> make_td_entity_type(const MessageEntity& ent) {
+    switch (ent.type) {
+        case MessageEntityType::Mention:       return td_api::make_object<td_api::textEntityTypeMention>();
+        case MessageEntityType::Hashtag:       return td_api::make_object<td_api::textEntityTypeHashtag>();
+        case MessageEntityType::Cashtag:       return td_api::make_object<td_api::textEntityTypeCashtag>();
+        case MessageEntityType::BotCommand:    return td_api::make_object<td_api::textEntityTypeBotCommand>();
+        case MessageEntityType::Url:           return td_api::make_object<td_api::textEntityTypeUrl>();
+        case MessageEntityType::EmailAddress:  return td_api::make_object<td_api::textEntityTypeEmailAddress>();
+        case MessageEntityType::PhoneNumber:   return td_api::make_object<td_api::textEntityTypePhoneNumber>();
+        case MessageEntityType::Bold:          return td_api::make_object<td_api::textEntityTypeBold>();
+        case MessageEntityType::Italic:        return td_api::make_object<td_api::textEntityTypeItalic>();
+        case MessageEntityType::Underline:     return td_api::make_object<td_api::textEntityTypeUnderline>();
+        case MessageEntityType::Strikethrough: return td_api::make_object<td_api::textEntityTypeStrikethrough>();
+        case MessageEntityType::Code:          return td_api::make_object<td_api::textEntityTypeCode>();
+        case MessageEntityType::Pre:           return td_api::make_object<td_api::textEntityTypePre>();
+        case MessageEntityType::PreCode:       return td_api::make_object<td_api::textEntityTypePreCode>(ent.argument);
+        case MessageEntityType::TextUrl:       return td_api::make_object<td_api::textEntityTypeTextUrl>(ent.argument);
+        case MessageEntityType::MentionName:   return td_api::make_object<td_api::textEntityTypeMentionName>(ent.argument.empty() ? 0 : std::stoll(ent.argument));
+        default:                               return nullptr;
+    }
+}
+
+/**
+ * @brief Converts a vector of TDLib textEntity objects into CppGram MessageEntity objects.
+ * @param entities Vector of TDLib textEntity pointers.
+ * @return Vector of converted MessageEntity domain models.
+ */
+inline std::vector<MessageEntity> convert_entities(
+        const std::vector<td_api::object_ptr<td_api::textEntity>>& entities) {
+    std::vector<MessageEntity> out;
+    for (const auto& e : entities) {
+        if (!e || !e->type_) continue;
+        MessageEntity ent;
+        ent.offset = e->offset_;
+        ent.length = e->length_;
+        ent.type = convert_entity_type(*e->type_);
+        switch (e->type_->get_id()) {
+            case td_api::textEntityTypeTextUrl::ID: {
+                auto& tu = static_cast<const td_api::textEntityTypeTextUrl&>(*e->type_);
+                ent.argument = tu.url_;
+                break;
+            }
+            case td_api::textEntityTypePreCode::ID: {
+                auto& pc = static_cast<const td_api::textEntityTypePreCode&>(*e->type_);
+                ent.argument = pc.language_;
+                break;
+            }
+            case td_api::textEntityTypeMentionName::ID: {
+                auto& mn = static_cast<const td_api::textEntityTypeMentionName&>(*e->type_);
+                ent.argument = std::to_string(mn.user_id_);
+                break;
+            }
+            default: break;
+        }
+        out.push_back(std::move(ent));
+    }
+    return out;
+}
+
+/**
+ * @brief Helper to construct a plain unformatted TDLib formattedText object.
+ * @param s Raw text string.
+ * @return TDLib formattedText object pointer.
+ */
 inline td_api::object_ptr<td_api::formattedText> make_text(const std::string& s) {
     auto ft = td_api::make_object<td_api::formattedText>();
     ft->text_ = s;
     return ft;
+}
+
+/**
+ * @brief Maps CppGram ParseMode to the corresponding TDLib TextParseMode object.
+ * @param mode The CppGram ParseMode.
+ * @return TDLib TextParseMode object pointer, or nullptr for plain text.
+ */
+inline td_api::object_ptr<td_api::TextParseMode> convert_parse_mode(ParseMode mode) {
+    switch (mode) {
+        case ParseMode::Markdown:   return td_api::make_object<td_api::textParseModeMarkdown>(1);
+        case ParseMode::MarkdownV2: return td_api::make_object<td_api::textParseModeMarkdown>(2);
+        case ParseMode::HTML:       return td_api::make_object<td_api::textParseModeHTML>();
+        default:                    return nullptr;
+    }
+}
+
+/**
+ * @brief Parses formatted text (Markdown/HTML) via TDLib ClientManager into a formattedText object.
+ * @param s Text containing formatting markup.
+ * @param mode Target parse mode (Markdown, MarkdownV2, or HTML).
+ * @return TDLib formattedText object pointer with parsed text and entity ranges.
+ */
+inline td_api::object_ptr<td_api::formattedText> parse_text(const std::string& s, ParseMode mode) {
+    if (s.empty() || mode == ParseMode::None) {
+        return make_text(s);
+    }
+    auto pm = convert_parse_mode(mode);
+    if (!pm) return make_text(s);
+
+    auto parsed = td::ClientManager::execute(
+        td_api::make_object<td_api::parseTextEntities>(s, std::move(pm)));
+    if (parsed && parsed->get_id() == td_api::formattedText::ID) {
+        return td_api::move_object_as<td_api::formattedText>(parsed);
+    }
+    return make_text(s);
+}
+
+/**
+ * @brief Converts a domain FormattedText object into a TDLib formattedText instance.
+ * @param ft Domain FormattedText containing string and entity list.
+ * @return TDLib formattedText object pointer.
+ */
+inline td_api::object_ptr<td_api::formattedText> convert_formatted_text(const FormattedText& ft) {
+    auto out = td_api::make_object<td_api::formattedText>();
+    out->text_ = ft.text;
+    for (const auto& e : ft.entities) {
+        auto t = make_td_entity_type(e);
+        if (t) {
+            out->entities_.push_back(td_api::make_object<td_api::textEntity>(e.offset, e.length, std::move(t)));
+        }
+    }
+    return out;
+}
+
+/**
+ * @brief Converts a TDLib formattedText instance into a domain FormattedText object.
+ * @param ft TDLib formattedText reference.
+ * @return Domain FormattedText instance.
+ */
+inline FormattedText convert_td_formatted_text(const td_api::formattedText& ft) {
+    FormattedText out;
+    out.text = ft.text_;
+    out.entities = convert_entities(ft.entities_);
+    return out;
+}
+
+// ============================================================================
+// Message Sending Options and Profile Photos
+// ============================================================================
+
+/**
+ * @brief Converts SendMessageOptions into TDLib messageSendOptions.
+ * @param opts Options including scheduling, notification silence, and background delivery.
+ * @return TDLib messageSendOptions object pointer.
+ */
+inline td_api::object_ptr<td_api::messageSendOptions> convert_send_options(const SendMessageOptions& opts) {
+    auto out = td_api::make_object<td_api::messageSendOptions>();
+    out->disable_notification_ = opts.disable_notification;
+    out->from_background_      = opts.from_background;
+    if (opts.schedule_date.has_value()) {
+        auto tt = std::chrono::system_clock::to_time_t(*opts.schedule_date);
+        out->scheduling_state_ = td_api::make_object<td_api::messageSchedulingStateSendAtDate>(
+            static_cast<std::int32_t>(tt));
+    }
+    return out;
+}
+
+/**
+ * @brief Converts a TDLib chatPhotos collection into a UserProfilePhotos domain object.
+ * @param photos TDLib chatPhotos object containing profile photo entries.
+ * @return Domain UserProfilePhotos collection.
+ */
+inline UserProfilePhotos convert_user_profile_photos(const td_api::chatPhotos& photos) {
+    UserProfilePhotos out;
+    out.total_count = photos.total_count_;
+    for (const auto& p : photos.photos_) {
+        if (!p) continue;
+        Photo photo;
+        for (const auto& s : p->sizes_) {
+            if (s) photo.sizes.push_back(convert_photo_size(*s));
+        }
+        if (!photo.empty()) out.photos.push_back(std::move(photo));
+    }
+    return out;
 }
 
 } // namespace cppgram::detail
