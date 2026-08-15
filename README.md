@@ -15,9 +15,34 @@ CppGram brings the developer experience of Pyrogram and Telethon to the C++ ecos
 - Two-factor authentication (2FA)
 - Automatic session persistence via TDLib and SQLite storage
 
+*Modular Plugin Architecture*
+- Abstract `IPlugin` lifecycle interface (`on_load`, `on_unload`)
+- `PluginManager` for dynamic registration, listing, and unloading of command modules
+- Isolated, reusable feature modules loaded directly onto `Client` (`client.loadPlugin(...)`)
+
+*Middleware Pipeline*
+- Flexible pre- and post-processing interceptor pipeline via `client.use(...)`
+- `MiddlewareContext` supporting custom metadata storage and event inspection
+- Early short-circuiting and event cancellation (`ctx.stop_propagation()`)
+
+*Worker Thread Pool & Dispatch Concurrency*
+- Built-in `ThreadPool` with thread-safe task queues and task counters
+- Configurable worker count via `client.setThreadPoolSize(N)`
+- Non-blocking concurrent execution of update handlers and background operations
+
+*Message Threads & Forum Topics*
+- Native Telegram message thread models (`MessageThreadInfo`, `ForumTopic`)
+- Thread-specific message sending and replying (`msg.reply_in_thread(...)`)
+- Querying thread information and message histories (`getMessageThread`, `getMessageThreadHistory`)
+- Thread-aware message filters (`Filters::thread(id)`, `Filters::in_thread()`)
+
+*Telegram Stories Models*
+- Domain models for Telegram Stories (`StoryItem`, `Stories`)
+- Granular audience privacy configuration (`StoryPrivacySettings`, `StoryPrivacy`)
+
 *Messaging & Rich Text Formatting*
 - Send, edit, delete, forward messages
-- Reply to messages
+- Reply to messages and reply within specific discussion threads
 - Parse modes: Markdown, MarkdownV2, HTML, and entity extraction
 - Pin / unpin messages
 - Reactions (emoji)
@@ -66,14 +91,14 @@ CppGram brings the developer experience of Pyrogram and Telethon to the C++ ecos
 
 *Native C++20 Coroutines*
 - `Task<T>` and `Task<void>` coroutine abstractions
-- Asynchronous client methods (`asyncSendMessage`, `asyncGetMe`, `asyncGetUser`, etc.)
+- Asynchronous client methods (`asyncSendMessage`, `asyncGetMe`, `asyncGetUser`, `asyncGetMessageThread`, etc.)
 - Non-blocking event handlers with `co_await`
 
 *Developer Experience*
 - Pyrogram-inspired API
 - Modern C++20
 - Composable filter system with `&&`, `||`, `!`
-- Entity convenience methods (`msg.reply()`, `msg.pin()`, `chat.banMember()`)
+- Entity convenience methods (`msg.reply()`, `msg.reply_in_thread()`, `msg.pin()`, `chat.banMember()`)
 - Builder-style keyboard construction
 - Cross-platform (Linux, macOS, Windows)
 
@@ -82,16 +107,19 @@ CppGram brings the developer experience of Pyrogram and Telethon to the C++ ecos
 **Architecture**
 
 ```
-Application
+Application / Custom Plugins
       │
       ▼
-CppGram API  (Client, Async Coroutines, Session Storage)
+Middleware Pipeline  (Authentication, Rate Limiting, Audit Logging)
       │
       ▼
-Event Dispatcher  (handlers, filters)
+CppGram API  (Client, Async Coroutines, Session Storage, Thread Management)
       │
       ▼
-TDLib Adapter  (async request/response, conversions)
+Event Dispatcher & Thread Pool  (Concurrent Workers, Filters)
+      │
+      ▼
+TDLib Adapter  (Async Request/Response, Conversions)
       │
       ▼
 TDLib
@@ -132,26 +160,62 @@ TDLib is fetched and built automatically via CMake `FetchContent`.
 
 **Quick Start**
 
-*Bot Login with HTML Formatting*
+*Bot Login with HTML Formatting & Plugins*
 ```cpp
 #include <cppgram/client.hpp>
+#include <cppgram/plugin.hpp>
 
 using namespace cppgram;
+
+class GreeterPlugin : public IPlugin {
+public:
+    std::string name() const override { return "Greeter"; }
+    
+    void on_load(Client& client) override {
+        client.onMessage(
+            Filters::command("start"),
+            [](Message msg) {
+                msg.reply("<b>Welcome to CppGram!</b>\n<i>Fast, type-safe Telegram bots in C++20.</i>");
+            }
+        );
+    }
+};
 
 int main() {
     Client client(API_ID, "API_HASH");
     client.setDefaultParseMode(ParseMode::HTML);
+    client.setThreadPoolSize(4); // 4 concurrent worker threads
+
+    client.loadPlugin(std::make_shared<GreeterPlugin>());
     client.loginBot("BOT_TOKEN");
-    
-    client.onMessage(
-        Filters::command("start"),
-        [](Message msg) {
-            msg.reply("<b>Welcome to CppGram!</b>\n<i>Fast and type-safe Telegram bots in C++20.</i>");
-        }
-    );
     
     client.run();
 }
+```
+
+*Middleware Pipeline*
+```cpp
+// Attach global logging & authentication middleware
+client.use([](MiddlewareContext& ctx) -> bool {
+    if (ctx.is_message()) {
+        auto& msg = ctx.message();
+        if (msg && msg->text.find("BANNED_KEYWORD") != std::string::npos) {
+            return false; // Drop update, halt pipeline
+        }
+    }
+    return true; // Continue to next middleware and handlers
+});
+```
+
+*Message Threads & Forum Topics*
+```cpp
+// Reply within a specific thread / forum topic
+client.onMessage(
+    Filters::in_thread(),
+    [](Message msg) {
+        msg.reply_in_thread("Received message in topic #" + std::to_string(*msg.message_thread_id));
+    }
+);
 ```
 
 *User Login with SQLite Session Storage*
@@ -251,8 +315,13 @@ cppgram/
 ├── include/cppgram/
 │   ├── client.hpp          # Main client class (sync + async coroutines)
 │   ├── coro.hpp            # C++20 coroutine Task<T> & sync_wait
+│   ├── plugin.hpp          # IPlugin base & PluginManager lifecycle
+│   ├── middleware.hpp      # MiddlewarePipeline & MiddlewareContext
+│   ├── thread_pool.hpp     # ThreadPool concurrent worker pool
+│   ├── thread.hpp          # MessageThreadInfo & ForumTopic models
+│   ├── story.hpp           # Telegram Stories models & privacy settings
 │   ├── storage.hpp         # SQLite & In-Memory session storage interface
-│   ├── message.hpp         # Message entity
+│   ├── message.hpp         # Message entity & thread reply helpers
 │   ├── chat.hpp            # Chat entity + ChatMember
 │   ├── user.hpp            # User entity
 │   ├── types.hpp           # Core types, ParseMode, FormattedText, SendMessageOptions
@@ -274,12 +343,14 @@ cppgram/
 │   └── core/
 │       ├── entities.cpp    # Entity convenience methods
 │       ├── storage.cpp     # SQLite3 & Memory session storage implementation
-│       └── filters.cpp     # Filter implementations
+│       ├── filters.cpp     # Filter implementations
+│       └── plugin.cpp      # PluginManager lifecycle implementation
 ├── tests/
-│   └── phase1_smoke.cpp    # Full test suite covering v0.1 & v0.2 features
+│   └── phase1_smoke.cpp    # Test suite covering v0.1, v0.2, and v0.3 features
 ├── examples/
 │   ├── hello.cpp           # Basic bot demonstration
-│   └── v02_features_demo.cpp # Showcase of all v0.2 features
+│   ├── v02_features_demo.cpp # Showcase of v0.2 features
+│   └── v03_features_demo.cpp # Showcase of v0.3 features (Plugins, Middleware, Threads, Pool)
 └── CMakeLists.txt
 ```
 
@@ -307,11 +378,18 @@ cppgram/
 - [x] Scheduled messages (scheduling, listing, immediate dispatch, deletion)
 - [x] Message formatting (Markdown, MarkdownV2, HTML, text entities)
 
-*Version 0.3 (Planned)*
-- [ ] Plugin system
-- [ ] Forum/topic support
-- [ ] Stories
-- [ ] Performance optimizations
+*Version 0.3 (Completed)*
+- [x] Modular plugin architecture (`IPlugin`, `PluginManager`)
+- [x] Middleware pipeline (`MiddlewarePipeline`, `MiddlewareContext`)
+- [x] Message threads & forum topics (`MessageThreadInfo`, `ForumTopic`, `reply_in_thread`, `Filters::thread`)
+- [x] Telegram Stories domain models (`StoryItem`, `StoryPrivacySettings`, `Stories`)
+- [x] Thread pool concurrency & worker sizing (`ThreadPool`, `setThreadPoolSize`)
+
+*Version 0.4 (Planned)*
+- [ ] Direct MTProto transport layer (TDLib-free standalone backend)
+- [ ] End-to-end secret chats support
+- [ ] Custom business bots and Telegram Mini App bot integration
+- [ ] Voice and Video calls WebRTC bindings
 
 *Version 1.0*
 - [ ] Stable API

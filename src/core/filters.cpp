@@ -120,4 +120,16 @@ MessageFilter userId(UserId id) {
     return [id](const Message& m) { return m.sender.id == id; };
 }
 
+MessageFilter thread(int64_t thread_id) {
+    return [thread_id](const Message& m) {
+        return m.message_thread_id.has_value() && *m.message_thread_id == thread_id;
+    };
+}
+
+MessageFilter in_thread() {
+    return [](const Message& m) {
+        return m.message_thread_id.has_value() && *m.message_thread_id != 0;
+    };
+}
+
 } // namespace cppgram::Filters

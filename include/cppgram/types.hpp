@@ -97,6 +97,7 @@ struct FormattedText {
 struct SendMessageOptions {
     ParseMode parse_mode{ParseMode::None};
     std::optional<Timestamp> schedule_date;
+    std::optional<int64_t>   message_thread_id;
     bool disable_notification{false};
     bool from_background{false};
     bool protect_content{false};

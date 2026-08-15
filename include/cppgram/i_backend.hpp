@@ -15,6 +15,7 @@ struct ChatMember;
 struct FileInfo;
 struct PhotoSize;
 struct UserProfilePhotos;
+struct MessageThreadInfo;
 
 class IBackend {
 public:
@@ -25,6 +26,11 @@ public:
     virtual User getUser(UserId id) = 0;
     virtual Chat getChat(ChatId id) = 0;
     virtual std::vector<Message> getHistory(ChatId chat_id, int limit) = 0;
+
+    // ---- Thread & Topics ----
+    virtual MessageThreadInfo getMessageThread(ChatId chat_id, MessageId message_id) = 0;
+    virtual std::vector<Message> getMessageThreadHistory(ChatId chat_id, MessageId message_id,
+                                                        MessageId from_message_id, int offset, int limit) = 0;
 
     // ---- Text messaging ----
     virtual Message sendMessage(ChatId chat_id, const std::string& text,

@@ -36,6 +36,27 @@ Message Message::reply(const std::string& body, const ReplyMarkup& markup, Parse
     return {};
 }
 
+Message Message::reply_in_thread(const std::string& body) {
+    if (auto c = _client.lock()) {
+        SendMessageOptions opts;
+        opts.message_thread_id = message_thread_id.value_or(id);
+        return c->sendMessage(chat_id, body, id, ParseMode::None, opts);
+    }
+    CPPGRAM_WARN("entity", "Message::reply_in_thread on expired client");
+    return {};
+}
+
+Message Message::reply_in_thread(const std::string& body, ParseMode parse_mode) {
+    if (auto c = _client.lock()) {
+        SendMessageOptions opts;
+        opts.parse_mode = parse_mode;
+        opts.message_thread_id = message_thread_id.value_or(id);
+        return c->sendMessage(chat_id, body, id, parse_mode, opts);
+    }
+    CPPGRAM_WARN("entity", "Message::reply_in_thread on expired client");
+    return {};
+}
+
 void Message::edit(const std::string& body) {
     if (auto c = _client.lock()) c->editMessage(chat_id, id, body);
 }

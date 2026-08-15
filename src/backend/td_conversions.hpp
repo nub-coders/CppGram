@@ -25,6 +25,7 @@
 #include "cppgram/media.hpp"
 #include "cppgram/keyboard.hpp"
 #include "cppgram/callback_query.hpp"
+#include "cppgram/thread.hpp"
 #include "cppgram/i_backend.hpp"
 
 namespace cppgram::detail {
@@ -663,6 +664,11 @@ inline Message convert_message(const td_api::message& m,
         out.reply_to = m.reply_to_message_id_;
     }
 
+    // Thread
+    if (m.message_thread_id_ != 0) {
+        out.message_thread_id = m.message_thread_id_;
+    }
+
     // Sender
     if (m.sender_id_ && m.sender_id_->get_id() == td_api::messageSenderUser::ID) {
         auto& su = static_cast<const td_api::messageSenderUser&>(*m.sender_id_);
@@ -704,6 +710,35 @@ inline Message convert_message(const td_api::message& m,
     }
 
     out._client = backend;
+    return out;
+}
+
+/**
+ * @brief Converts a TDLib messageThreadInfo object into a MessageThreadInfo domain model.
+ * @param info TDLib messageThreadInfo object.
+ * @param backend Weak pointer to the backend client implementation.
+ * @return Converted MessageThreadInfo instance.
+ */
+inline MessageThreadInfo convert_message_thread_info(
+        const td_api::messageThreadInfo& info,
+        std::weak_ptr<IBackend> backend = {}) {
+    MessageThreadInfo out;
+    out.chat_id = info.chat_id_;
+    out.message_thread_id = info.message_thread_id_;
+    out.unread_message_count = info.unread_message_count_;
+    for (const auto& msg : info.messages_) {
+        if (msg) {
+            out.messages.push_back(convert_message(*msg, ChatType::Unknown, backend));
+        }
+    }
+    if (info.draft_message_ && info.draft_message_->input_message_text_) {
+        if (info.draft_message_->input_message_text_->get_id() == td_api::inputMessageText::ID) {
+            auto& imt = static_cast<const td_api::inputMessageText&>(*info.draft_message_->input_message_text_);
+            if (imt.text_) {
+                out.draft_message = imt.text_->text_;
+            }
+        }
+    }
     return out;
 }
 

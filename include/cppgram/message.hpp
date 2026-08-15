@@ -22,6 +22,7 @@ public:
     bool        outgoing{false};
     MediaType   media{MediaType::None};
     std::optional<MessageId> reply_to;
+    std::optional<int64_t>   message_thread_id;
     std::optional<ForwardInfo> forward_info;
     std::optional<Timestamp>   schedule_date;
 
@@ -54,6 +55,8 @@ public:
     Message reply(const std::string& body, ParseMode parse_mode);
     Message reply(const std::string& body, const ReplyMarkup& markup);
     Message reply(const std::string& body, const ReplyMarkup& markup, ParseMode parse_mode);
+    Message reply_in_thread(const std::string& body);
+    Message reply_in_thread(const std::string& body, ParseMode parse_mode);
     void    edit(const std::string& body);
     void    edit(const std::string& body, ParseMode parse_mode);
     void    editCaption(const std::string& new_caption);

@@ -592,6 +592,198 @@ int main() {
     }
 #endif
 
-    std::cout << "All smoke tests passed (including error mapping and v0.2 features).\n";
+    // ---- 31. ThreadPool (v0.3) ----
+    {
+        ThreadPool pool(4);
+        assert(pool.size() == 4);
+        assert(pool.is_running());
+
+        std::atomic<int> counter{0};
+        constexpr int kTasks = 50;
+        for (int i = 0; i < kTasks; ++i) {
+            pool.enqueue([&counter] {
+                counter.fetch_add(1, std::memory_order_relaxed);
+            });
+        }
+        pool.wait_all();
+        assert(counter.load() == kTasks);
+        assert(pool.completed_tasks() == kTasks);
+
+        pool.shutdown();
+        assert(!pool.is_running());
+    }
+
+    // ---- 32. Plugin Architecture (v0.3) ----
+    {
+        class TestPlugin : public IPlugin {
+        public:
+            bool loaded{false};
+            bool unloaded{false};
+            std::string name() const override { return "TestPlugin"; }
+            std::string version() const override { return "1.2.3"; }
+            std::string description() const override { return "Test Description"; }
+            void on_load(Client&) override { loaded = true; }
+            void on_unload(Client&) override { unloaded = true; }
+        };
+
+        PluginManager mgr;
+        Client dummy_client;
+        auto plugin = std::make_shared<TestPlugin>();
+
+        assert(!mgr.has_plugin("TestPlugin"));
+        assert(mgr.list_plugins().empty());
+
+        bool ok = mgr.register_plugin(plugin, dummy_client);
+        assert(ok);
+        assert(plugin->loaded);
+        assert(mgr.has_plugin("TestPlugin"));
+        assert(mgr.get_plugin("TestPlugin") == plugin);
+        assert(mgr.list_plugins().size() == 1);
+
+        // Duplicate registration must fail
+        assert(!mgr.register_plugin(plugin, dummy_client));
+
+        // Unregister
+        bool unreg = mgr.unregister_plugin("TestPlugin", dummy_client);
+        assert(unreg);
+        assert(plugin->unloaded);
+        assert(!mgr.has_plugin("TestPlugin"));
+        assert(mgr.list_plugins().empty());
+
+        // Unregister non-existent
+        assert(!mgr.unregister_plugin("Unknown", dummy_client));
+
+        // Test unload_all
+        auto p2 = std::make_shared<TestPlugin>();
+        mgr.register_plugin(p2, dummy_client);
+        assert(mgr.has_plugin("TestPlugin"));
+        mgr.unload_all(dummy_client);
+        assert(p2->unloaded);
+        assert(!mgr.has_plugin("TestPlugin"));
+    }
+
+    // ---- 33. Middleware Pipeline (v0.3) ----
+    {
+        MiddlewarePipeline pipeline;
+        assert(pipeline.empty());
+
+        std::vector<std::string> log;
+
+        pipeline.use([&log](MiddlewareContext& ctx) -> bool {
+            log.push_back("m1_pre");
+            ctx.set_data("trace_id", "xyz-123");
+            return true;
+        });
+
+        pipeline.use([&log](MiddlewareContext& ctx) -> bool {
+            log.push_back("m2_pre");
+            auto trace = ctx.get_data("trace_id");
+            assert(trace.has_value() && *trace == "xyz-123");
+            return true;
+        });
+
+        assert(pipeline.size() == 2);
+
+        Client dummy_client;
+        Message msg;
+        msg.id = 100;
+        msg.chat_id = 200;
+        msg.text = "hello middleware";
+
+        MiddlewareContext ctx(dummy_client, msg, std::nullopt);
+        bool executed = pipeline.execute(ctx);
+        assert(executed);
+        assert(log.size() == 2);
+        assert(log[0] == "m1_pre");
+        assert(log[1] == "m2_pre");
+
+        // Test halting / short-circuiting
+        MiddlewarePipeline halt_pipeline;
+        halt_pipeline.use([](MiddlewareContext&) -> bool {
+            return false; // drop update
+        });
+        halt_pipeline.use([&log](MiddlewareContext&) -> bool {
+            log.push_back("should_not_run");
+            return true;
+        });
+        MiddlewareContext ctx2(dummy_client, msg, std::nullopt);
+        assert(!halt_pipeline.execute(ctx2));
+        assert(log.size() == 2); // didn't run the second middleware
+    }
+
+    // ---- 34. Message Threads & Topics (v0.3) ----
+    {
+        MessageThreadInfo info;
+        info.chat_id = -1001234567890LL;
+        info.message_thread_id = 42;
+        info.unread_message_count = 5;
+        info.messages.push_back(Message{});
+        info.messages[0].id = 101;
+        info.messages[0].message_thread_id = 42;
+
+        assert(info.chat_id == -1001234567890LL);
+        assert(info.message_thread_id == 42);
+        assert(info.unread_message_count == 5);
+        assert(info.messages.size() == 1);
+        assert(info.messages[0].message_thread_id.has_value() && *info.messages[0].message_thread_id == 42);
+
+        // Filters::thread and Filters::in_thread
+        Message msg_thread;
+        msg_thread.id = 1;
+        msg_thread.message_thread_id = 42;
+        assert(Filters::thread(42)(msg_thread));
+        assert(!Filters::thread(99)(msg_thread));
+        assert(Filters::in_thread()(msg_thread));
+
+        Message msg_nothread;
+        msg_nothread.id = 2;
+        assert(!Filters::thread(42)(msg_nothread));
+        assert(!Filters::in_thread()(msg_nothread));
+
+        // ForumTopic structure
+        ForumTopic topic;
+        topic.message_thread_id = 77;
+        topic.name = "General Discussion";
+        topic.icon_color = 0x6FB9F0;
+        topic.is_closed = false;
+        topic.is_hidden = false;
+        assert(topic.message_thread_id == 77);
+        assert(topic.name == "General Discussion");
+        assert(!topic.is_closed);
+        assert(!topic.is_hidden);
+
+        // SendMessageOptions with message_thread_id
+        SendMessageOptions opts;
+        opts.message_thread_id = 77;
+        assert(opts.message_thread_id.has_value() && *opts.message_thread_id == 77);
+    }
+
+    // ---- 35. Telegram Stories (v0.3) ----
+    {
+        StoryItem story;
+        story.id = 12345;
+        story.sender_chat_id = -1009876543210LL;
+        story.date = std::chrono::system_clock::from_time_t(1750000000);
+        story.is_pinned = true;
+        story.caption = "Holiday trip!";
+
+        assert(story.id == 12345);
+        assert(story.sender_chat_id == -1009876543210LL);
+        assert(story.is_pinned);
+        assert(story.caption == "Holiday trip!");
+
+        StoryPrivacySettings privacy;
+        privacy.privacy = StoryPrivacy::Public;
+        assert(privacy.privacy == StoryPrivacy::Public);
+
+        Stories stories;
+        stories.total_count = 1;
+        stories.stories.push_back(story);
+        assert(stories.total_count == 1);
+        assert(stories.stories.size() == 1);
+        assert(stories.stories[0].id == 12345);
+    }
+
+    std::cout << "All smoke tests passed (including v0.1, v0.2, and v0.3 features).\n";
     return 0;
 }

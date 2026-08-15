@@ -1,4 +1,10 @@
 #pragma once
+
+/**
+ * @file client.hpp
+ * @brief Primary Client interface for CppGram Telegram framework.
+ */
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -14,10 +20,18 @@
 #include "cppgram/handlers.hpp"
 #include "cppgram/storage.hpp"
 #include "cppgram/coro.hpp"
+#include "cppgram/thread.hpp"
+#include "cppgram/story.hpp"
+#include "cppgram/plugin.hpp"
+#include "cppgram/middleware.hpp"
+#include "cppgram/thread_pool.hpp"
 
 namespace cppgram {
 class ClientImpl;
 
+/**
+ * @brief High-level Telegram client supporting MTProto, TDLib, bots, user accounts, coroutines, and plugins.
+ */
 class Client {
 public:
     Client();
@@ -35,6 +49,18 @@ public:
     void setDefaultParseMode(ParseMode mode);
     ParseMode getDefaultParseMode() const;
 
+    // ---- Thread Pool & Worker Concurrency ----
+    void setThreadPoolSize(size_t threads);
+    size_t getThreadPoolSize() const;
+
+    // ---- Middleware Pipeline ----
+    void use(MiddlewareFunc middleware);
+
+    // ---- Plugin Architecture ----
+    bool loadPlugin(std::shared_ptr<IPlugin> plugin);
+    bool unloadPlugin(const std::string& name);
+    std::vector<std::shared_ptr<IPlugin>> plugins() const;
+
     // ---- Auth ----
     void login(const std::string& phone,
                std::function<std::string()> code_callback = {},
@@ -44,10 +70,16 @@ public:
     AuthState authState() const;
 
     // ---- Users & chats ----
-    User              getMe();
-    User              getUser(UserId id);
-    Chat              getChat(ChatId id);
+    User                 getMe();
+    User                 getUser(UserId id);
+    Chat                 getChat(ChatId id);
     std::vector<Message> getHistory(ChatId chat_id, int limit = 100);
+
+    // ---- Message Threads & Topics ----
+    MessageThreadInfo    getMessageThread(ChatId chat_id, MessageId message_id);
+    std::vector<Message> getMessageThreadHistory(ChatId chat_id, MessageId message_id,
+                                                 MessageId from_message_id = 0,
+                                                 int offset = 0, int limit = 100);
 
     // ---- Text messaging ----
     Message sendMessage(ChatId chat_id, const std::string& text,
@@ -237,20 +269,24 @@ public:
                          std::function<void(CallbackQuery)> cb);
 
     // ---- Async Coroutines (C++20) ----
-    Task<Message> asyncSendMessage(ChatId chat_id, const std::string& text,
-                                   std::optional<MessageId> reply_to = std::nullopt);
-    Task<Message> asyncSendMessage(ChatId chat_id, const std::string& text,
-                                   const SendMessageOptions& options,
-                                   std::optional<MessageId> reply_to = std::nullopt);
-    Task<Message> asyncSendMessage(ChatId chat_id, const std::string& text,
-                                   ParseMode parse_mode,
-                                   const SendMessageOptions& options = {},
-                                   std::optional<MessageId> reply_to = std::nullopt);
-    Task<User>    asyncGetMe();
-    Task<User>    asyncGetUser(UserId id);
-    Task<Chat>    asyncGetChat(ChatId id);
-    Task<void>    asyncDeleteMessages(ChatId chat_id, std::vector<MessageId> message_ids);
-    Task<void>    asyncEditMessage(ChatId chat_id, MessageId msg_id, const std::string& text);
+    Task<Message>           asyncSendMessage(ChatId chat_id, const std::string& text,
+                                             std::optional<MessageId> reply_to = std::nullopt);
+    Task<Message>           asyncSendMessage(ChatId chat_id, const std::string& text,
+                                             const SendMessageOptions& options,
+                                             std::optional<MessageId> reply_to = std::nullopt);
+    Task<Message>           asyncSendMessage(ChatId chat_id, const std::string& text,
+                                             ParseMode parse_mode,
+                                             const SendMessageOptions& options = {},
+                                             std::optional<MessageId> reply_to = std::nullopt);
+    Task<User>              asyncGetMe();
+    Task<User>              asyncGetUser(UserId id);
+    Task<Chat>              asyncGetChat(ChatId id);
+    Task<MessageThreadInfo> asyncGetMessageThread(ChatId chat_id, MessageId message_id);
+    Task<std::vector<Message>> asyncGetMessageThreadHistory(ChatId chat_id, MessageId message_id,
+                                                           MessageId from_message_id = 0,
+                                                           int offset = 0, int limit = 100);
+    Task<void>              asyncDeleteMessages(ChatId chat_id, std::vector<MessageId> message_ids);
+    Task<void>              asyncEditMessage(ChatId chat_id, MessageId msg_id, const std::string& text);
 
     // ---- Event loop ----
     void run();

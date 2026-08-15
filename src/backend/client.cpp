@@ -57,6 +57,13 @@ public:
     std::shared_ptr<ISessionStorage> storage_;
     std::atomic<ParseMode> default_parse_mode_{ParseMode::None};
 
+    // Client reference, Middleware, Plugins & Thread Pool
+    Client* client_ref_{nullptr};
+    MiddlewarePipeline middleware_;
+    PluginManager plugin_mgr_;
+    std::unique_ptr<ThreadPool> thread_pool_;
+    mutable std::mutex thread_pool_mtx_;
+
     // Event handlers
     std::mutex handlers_mtx_;
     std::vector<MessageHandler>         on_message_handlers_;
@@ -73,6 +80,10 @@ public:
 
     ~ClientImpl() {
         {
+            std::lock_guard lk(thread_pool_mtx_);
+            if (thread_pool_) thread_pool_->shutdown();
+        }
+        {
             std::lock_guard lk(queue_mtx_);
             dispatcher_running_ = false;
         }
@@ -80,6 +91,41 @@ public:
         if (dispatcher_thread_.joinable()) {
             dispatcher_thread_.join();
         }
+    }
+
+    void setThreadPoolSize(size_t threads) {
+        std::lock_guard lk(thread_pool_mtx_);
+        if (threads == 0) {
+            if (thread_pool_) {
+                thread_pool_->shutdown();
+                thread_pool_.reset();
+            }
+        } else {
+            thread_pool_ = std::make_unique<ThreadPool>(threads);
+        }
+    }
+
+    size_t getThreadPoolSize() const {
+        std::lock_guard lk(thread_pool_mtx_);
+        return thread_pool_ ? thread_pool_->size() : 0;
+    }
+
+    void use(MiddlewareFunc middleware) {
+        middleware_.use(std::move(middleware));
+    }
+
+    bool loadPlugin(std::shared_ptr<IPlugin> plugin) {
+        if (!client_ref_) return false;
+        return plugin_mgr_.register_plugin(std::move(plugin), *client_ref_);
+    }
+
+    bool unloadPlugin(const std::string& name) {
+        if (!client_ref_) return false;
+        return plugin_mgr_.unregister_plugin(name, *client_ref_);
+    }
+
+    std::vector<std::shared_ptr<IPlugin>> plugins() const {
+        return plugin_mgr_.list_plugins();
     }
 
     // ---- Dispatcher loop (runs on its own thread) ----
@@ -159,10 +205,11 @@ public:
                          std::optional<MessageId> reply_to,
                          td_api::object_ptr<td_api::ReplyMarkup> markup,
                          const char* ctx,
-                         td_api::object_ptr<td_api::messageSendOptions> options = nullptr) {
+                         td_api::object_ptr<td_api::messageSendOptions> options = nullptr,
+                         int64_t message_thread_id = 0) {
         auto req = td_api::make_object<td_api::sendMessage>();
         req->chat_id_ = chat_id;
-        req->message_thread_id_ = 0;
+        req->message_thread_id_ = message_thread_id;
         req->reply_to_message_id_ = reply_to.value_or(0);
         if (options) req->options_ = std::move(options);
         if (markup) req->reply_markup_ = std::move(markup);
@@ -177,6 +224,7 @@ public:
         }
         Message stub;
         stub.chat_id = chat_id;
+        if (message_thread_id != 0) stub.message_thread_id = message_thread_id;
         stub.outgoing = true;
         stub._client = weak_from_this();
         return stub;
@@ -382,19 +430,37 @@ public:
 
     // ---- Event dispatch ----
     void dispatch_message(Message msg) {
+        if (client_ref_) {
+            MiddlewareContext ctx(*client_ref_, msg, std::nullopt);
+            if (!middleware_.execute(ctx)) {
+                CPPGRAM_INFO("middleware", "message halted by middleware chat={} id={}", msg.chat_id, msg.id);
+                return;
+            }
+        }
         std::vector<MessageHandler> copy;
         { std::lock_guard lk(handlers_mtx_); copy = on_message_handlers_; }
         CPPGRAM_INFO("dispatch", "dispatching message chat={} id={} text={} handlers={}",
                      msg.chat_id, msg.id, msg.text, copy.size());
-        for (auto& h : copy) {
-            if (h.filter(msg)) {
-                CPPGRAM_INFO("dispatch", "handler matched for chat={} id={}", msg.chat_id, msg.id);
-                try { h.callback(msg); }
-                catch (const std::exception& e) {
-                    CPPGRAM_ERROR("handler",
-                                  "Exception in message handler: {}", e.what());
+
+        auto run_handlers = [copy = std::move(copy), msg = std::move(msg)]() {
+            for (auto& h : copy) {
+                if (h.filter(msg)) {
+                    CPPGRAM_INFO("dispatch", "handler matched for chat={} id={}", msg.chat_id, msg.id);
+                    try { h.callback(msg); }
+                    catch (const std::exception& e) {
+                        CPPGRAM_ERROR("handler",
+                                      "Exception in message handler: {}", e.what());
+                    }
                 }
             }
+        };
+
+        std::unique_lock lk(thread_pool_mtx_);
+        if (thread_pool_) {
+            thread_pool_->enqueue(std::move(run_handlers));
+        } else {
+            lk.unlock();
+            run_handlers();
         }
     }
 
@@ -427,17 +493,35 @@ public:
     }
 
     void dispatch_callback_query(CallbackQuery q) {
+        if (client_ref_) {
+            MiddlewareContext ctx(*client_ref_, std::nullopt, q);
+            if (!middleware_.execute(ctx)) {
+                CPPGRAM_INFO("middleware", "callback query halted by middleware id={}", q.id);
+                return;
+            }
+        }
         std::vector<CallbackQueryHandler> copy;
         { std::lock_guard lk(handlers_mtx_); copy = on_callback_query_handlers_; }
-        for (auto& h : copy) {
-            if (!h.filter || h.filter(q)) {
-                try { h.callback(q); }
-                catch (const std::exception& e) {
-                    CPPGRAM_ERROR("handler",
-                                  "Exception in callback query handler: {}",
-                                  e.what());
+
+        auto run_handlers = [copy = std::move(copy), q = std::move(q)]() {
+            for (auto& h : copy) {
+                if (!h.filter || h.filter(q)) {
+                    try { h.callback(q); }
+                    catch (const std::exception& e) {
+                        CPPGRAM_ERROR("handler",
+                                      "Exception in callback query handler: {}",
+                                      e.what());
+                    }
                 }
             }
+        };
+
+        std::unique_lock lk(thread_pool_mtx_);
+        if (thread_pool_) {
+            thread_pool_->enqueue(std::move(run_handlers));
+        } else {
+            lk.unlock();
+            run_handlers();
         }
     }
 
@@ -528,6 +612,42 @@ public:
         return out;
     }
 
+    // ---- Thread & Topics ----
+    MessageThreadInfo getMessageThread(ChatId chat_id, MessageId message_id) override {
+        auto req = td_api::make_object<td_api::getMessageThread>();
+        req->chat_id_ = chat_id;
+        req->message_id_ = message_id;
+        auto result = td.send_sync(std::move(req));
+        check_error(result, "getMessageThread");
+        if (result && result->get_id() == td_api::messageThreadInfo::ID) {
+            auto& ti = static_cast<const td_api::messageThreadInfo&>(*result);
+            return detail::convert_message_thread_info(ti, weak_from_this());
+        }
+        return {};
+    }
+
+    std::vector<Message> getMessageThreadHistory(ChatId chat_id, MessageId message_id,
+                                                 MessageId from_message_id,
+                                                 int offset, int limit) override {
+        auto req = td_api::make_object<td_api::getMessageThreadHistory>();
+        req->chat_id_ = chat_id;
+        req->message_id_ = message_id;
+        req->from_message_id_ = from_message_id;
+        req->offset_ = offset;
+        req->limit_ = limit;
+        auto result = td.send_sync(std::move(req));
+        check_error(result, "getMessageThreadHistory");
+        std::vector<Message> out;
+        if (result && result->get_id() == td_api::messages::ID) {
+            auto& ms = static_cast<const td_api::messages&>(*result);
+            auto ct = lookup_chat_type(chat_id);
+            for (auto& m : ms.messages_) {
+                if (m) out.push_back(detail::convert_message(*m, ct, weak_from_this()));
+            }
+        }
+        return out;
+    }
+
     // ---- Formatting & Text Parsing ----
     FormattedText parseTextEntities(const std::string& text, ParseMode parse_mode) override {
         auto pm = parse_mode == ParseMode::None ? default_parse_mode_.load() : parse_mode;
@@ -552,7 +672,8 @@ public:
         content->text_ = detail::parse_text(text, pm);
         CPPGRAM_INFO("client", "sendMessage chat={}", chat_id);
         return send_content(chat_id, std::move(content), reply_to, nullptr,
-                            "sendMessage", detail::convert_send_options(options));
+                            "sendMessage", detail::convert_send_options(options),
+                            options.message_thread_id.value_or(0));
     }
 
     Message sendMessageWithMarkup(ChatId chat_id, const std::string& text,
@@ -571,7 +692,8 @@ public:
         content->text_ = detail::parse_text(text, pm);
         return send_content(chat_id, std::move(content), reply_to,
                             detail::build_reply_markup(markup), "sendMessage",
-                            detail::convert_send_options(options));
+                            detail::convert_send_options(options),
+                            options.message_thread_id.value_or(0));
     }
 
     Message sendFormattedMessage(ChatId chat_id, const FormattedText& text,
@@ -583,7 +705,8 @@ public:
         td_api::object_ptr<td_api::ReplyMarkup> rm = markup ? detail::build_reply_markup(*markup) : nullptr;
         return send_content(chat_id, std::move(content), reply_to,
                             std::move(rm), "sendFormattedMessage",
-                            detail::convert_send_options(options));
+                            detail::convert_send_options(options),
+                            options.message_thread_id.value_or(0));
     }
 
     void setDefaultParseMode(ParseMode mode) override {
@@ -1358,24 +1481,30 @@ public:
 // ---------------------------------------------------------------------------
 
 Client::Client() : impl_(std::make_shared<ClientImpl>()) {
+    impl_->client_ref_ = this;
     impl_->init();
 }
 
 Client::Client(std::int32_t api_id, std::string api_hash)
     : impl_(std::make_shared<ClientImpl>()) {
+    impl_->client_ref_ = this;
     impl_->creds = {api_id, std::move(api_hash)};
     impl_->init();
 }
 
 Client::Client(std::int32_t api_id, std::string api_hash, std::shared_ptr<ISessionStorage> storage)
     : impl_(std::make_shared<ClientImpl>()) {
+    impl_->client_ref_ = this;
     impl_->creds = {api_id, std::move(api_hash)};
     impl_->storage_ = std::move(storage);
     impl_->init();
 }
 
 Client::~Client() {
-    if (impl_) impl_->td.stop();
+    if (impl_) {
+        impl_->plugin_mgr_.unload_all(*this);
+        impl_->td.stop();
+    }
 }
 
 Client::Client(Client&&) noexcept = default;
@@ -1392,6 +1521,33 @@ void Client::setDefaultParseMode(ParseMode mode) {
 
 ParseMode Client::getDefaultParseMode() const {
     return impl_->getDefaultParseMode();
+}
+
+// ---- Thread Pool & Worker Concurrency ----
+void Client::setThreadPoolSize(size_t threads) {
+    impl_->setThreadPoolSize(threads);
+}
+
+size_t Client::getThreadPoolSize() const {
+    return impl_->getThreadPoolSize();
+}
+
+// ---- Middleware Pipeline ----
+void Client::use(MiddlewareFunc middleware) {
+    impl_->use(std::move(middleware));
+}
+
+// ---- Plugin Architecture ----
+bool Client::loadPlugin(std::shared_ptr<IPlugin> plugin) {
+    return impl_->loadPlugin(std::move(plugin));
+}
+
+bool Client::unloadPlugin(const std::string& name) {
+    return impl_->unloadPlugin(name);
+}
+
+std::vector<std::shared_ptr<IPlugin>> Client::plugins() const {
+    return impl_->plugins();
 }
 
 // ---- Auth ----
@@ -1437,6 +1593,17 @@ User Client::getUser(UserId id) { return impl_->getUser(id); }
 Chat Client::getChat(ChatId id) { return impl_->getChat(id); }
 std::vector<Message> Client::getHistory(ChatId c, int l) {
     return impl_->getHistory(c, l);
+}
+
+// ---- Message Threads & Topics ----
+MessageThreadInfo Client::getMessageThread(ChatId chat_id, MessageId message_id) {
+    return impl_->getMessageThread(chat_id, message_id);
+}
+
+std::vector<Message> Client::getMessageThreadHistory(ChatId chat_id, MessageId message_id,
+                                                     MessageId from_message_id,
+                                                     int offset, int limit) {
+    return impl_->getMessageThreadHistory(chat_id, message_id, from_message_id, offset, limit);
 }
 
 // ---- Text messaging ----
@@ -1835,6 +2002,16 @@ Task<User> Client::asyncGetUser(UserId id) {
 
 Task<Chat> Client::asyncGetChat(ChatId id) {
     co_return getChat(id);
+}
+
+Task<MessageThreadInfo> Client::asyncGetMessageThread(ChatId chat_id, MessageId message_id) {
+    co_return getMessageThread(chat_id, message_id);
+}
+
+Task<std::vector<Message>> Client::asyncGetMessageThreadHistory(ChatId chat_id, MessageId message_id,
+                                                               MessageId from_message_id,
+                                                               int offset, int limit) {
+    co_return getMessageThreadHistory(chat_id, message_id, from_message_id, offset, limit);
 }
 
 Task<void> Client::asyncDeleteMessages(ChatId chat_id, std::vector<MessageId> message_ids) {

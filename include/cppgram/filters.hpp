@@ -60,6 +60,8 @@ MessageFilter forwarded();
 MessageFilter regex(const std::string& pattern);
 MessageFilter chatId(ChatId id);
 MessageFilter userId(UserId id);
+MessageFilter thread(int64_t thread_id);
+MessageFilter in_thread();
 
 } // namespace Filters
 } // namespace cppgram
