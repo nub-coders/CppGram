@@ -15,6 +15,33 @@ CppGram brings the developer experience of Pyrogram and Telethon to the C++ ecos
 - Two-factor authentication (2FA)
 - Automatic session persistence via TDLib and SQLite storage
 
+*Telegram Mini Apps & Web Apps*
+- Full domain models for Web Apps (`WebAppInfo`, `WebAppData`, `SentWebAppMessage`, `WebAppOpenMode`)
+- WebApp buttons on Inline and Reply keyboards (`InlineKeyboardButton::web_app`, `ReplyKeyboardButton::web_app`)
+- WebApp data filters (`Filters::webAppData()`) and answer queries (`client.answerWebAppQuery`, `client.asyncAnswerWebAppQuery`)
+
+*Telegram Business Bots & Quick Replies*
+- Business connection management (`BusinessConnection`, `BusinessIntro`, `BusinessLocation`, `BusinessOpeningHours`)
+- Quick reply templates & shortcut models (`QuickReplyShortcut`, `BusinessMessages`)
+- Business event routing filters (`Filters::business()`, `Filters::businessConnectionId(id)`)
+
+*Secret Chats & End-to-End Encryption (E2EE)*
+- Domain models and state tracking for secret chats (`SecretChat`, `SecretChatState`)
+- Secret chat lifecycle management (`createSecretChat`, `closeSecretChat`, `getSecretChat`)
+- Coroutine-based secret chat methods (`asyncCreateSecretChat`, `asyncCloseSecretChat`, `asyncGetSecretChat`)
+
+*Voice & Group Calls*
+- Group and voice call domain entities (`GroupCall`, `GroupCallParticipant`, `CallProtocol`, `CallServer`, `CallDiscardReason`)
+- Call management API (`getGroupCall`, `joinGroupCall`, `leaveGroupCall`)
+- Coroutine call actions (`asyncGetGroupCall`, `asyncJoinGroupCall`, `asyncLeaveGroupCall`)
+
+*Standalone MTProto Transport Codecs*
+- Standalone framing and serialization codecs for MTProto TCP streaming
+- `AbridgedCodec` (0xef prefix, compact variable-length framing)
+- `IntermediateCodec` (0xeeeeeeee prefix, 4-byte little-endian length)
+- `FullCodec` (sequence numbered frames with IEEE 802.3 CRC32 verification)
+- Factory initialization via `create_transport_codec(TransportProtocol::...)`
+
 *Modular Plugin Architecture*
 - Abstract `IPlugin` lifecycle interface (`on_load`, `on_unload`)
 - `PluginManager` for dynamic registration, listing, and unloading of command modules
@@ -70,8 +97,8 @@ CppGram brings the developer experience of Pyrogram and Telethon to the C++ ecos
 - Venues
 
 *Inline Keyboards & Callbacks*
-- Inline keyboard buttons (callback data, URLs, switch inline)
-- Reply keyboards
+- Inline keyboard buttons (callback data, URLs, WebApps, switch inline)
+- Reply keyboards with WebApp launching
 - Remove keyboard / force reply
 - Callback query handling and answering
 
@@ -91,7 +118,7 @@ CppGram brings the developer experience of Pyrogram and Telethon to the C++ ecos
 
 *Native C++20 Coroutines*
 - `Task<T>` and `Task<void>` coroutine abstractions
-- Asynchronous client methods (`asyncSendMessage`, `asyncGetMe`, `asyncGetUser`, `asyncGetMessageThread`, etc.)
+- Asynchronous client methods (`asyncSendMessage`, `asyncGetMe`, `asyncCreateSecretChat`, etc.)
 - Non-blocking event handlers with `co_await`
 
 *Developer Experience*
@@ -119,10 +146,10 @@ CppGram API  (Client, Async Coroutines, Session Storage, Thread Management)
 Event Dispatcher & Thread Pool  (Concurrent Workers, Filters)
       │
       ▼
-TDLib Adapter  (Async Request/Response, Conversions)
+TDLib Adapter / MTProto Codecs  (Async Request/Response, Packet Codecs)
       │
       ▼
-TDLib
+TDLib / TCP Stream
       │
       ▼
 Telegram Servers
@@ -160,37 +187,74 @@ TDLib is fetched and built automatically via CMake `FetchContent`.
 
 **Quick Start**
 
-*Bot Login with HTML Formatting & Plugins*
+*Bot Login with Mini Apps & HTML Formatting*
 ```cpp
 #include <cppgram/client.hpp>
-#include <cppgram/plugin.hpp>
+#include <cppgram/web_app.hpp>
 
 using namespace cppgram;
-
-class GreeterPlugin : public IPlugin {
-public:
-    std::string name() const override { return "Greeter"; }
-    
-    void on_load(Client& client) override {
-        client.onMessage(
-            Filters::command("start"),
-            [](Message msg) {
-                msg.reply("<b>Welcome to CppGram!</b>\n<i>Fast, type-safe Telegram bots in C++20.</i>");
-            }
-        );
-    }
-};
 
 int main() {
     Client client(API_ID, "API_HASH");
     client.setDefaultParseMode(ParseMode::HTML);
-    client.setThreadPoolSize(4); // 4 concurrent worker threads
 
-    client.loadPlugin(std::make_shared<GreeterPlugin>());
+    client.onMessage(
+        Filters::command("app"),
+        [](Message msg) {
+            InlineKeyboard ik;
+            ik.addButton(0, InlineKeyboardButton::web_app(
+                "Launch Mini App", "https://webapp.telegram.org"));
+            msg.reply("Click below to open our interactive Mini App:", ik);
+        }
+    );
+
+    client.onMessage(
+        Filters::webAppData(),
+        [](Message msg) {
+            if (msg.web_app_data) {
+                msg.reply("Received data from Mini App: " + msg.web_app_data->data);
+            }
+        }
+    );
+
     client.loginBot("BOT_TOKEN");
-    
     client.run();
 }
+```
+
+*Telegram Business Bots & Quick Replies*
+```cpp
+// Filter and handle incoming messages via connected Telegram Business accounts
+client.onMessage(
+    Filters::business(),
+    [](Message msg) {
+        if (msg.business_connection_id) {
+            msg.reply("Automated Business Reply for connection: " + *msg.business_connection_id);
+        }
+    }
+);
+```
+
+*Secret Chats & E2EE Lifecycle*
+```cpp
+// Create and query an end-to-end encrypted secret chat
+SecretChat chat = client.createSecretChat(TARGET_USER_ID);
+if (chat.state == SecretChatState::Ready) {
+    std::cout << "Secret chat ready on layer " << chat.layer << "\n";
+}
+```
+
+*Standalone MTProto Transport Codecs*
+```cpp
+#include <cppgram/transport.hpp>
+
+// Encode and decode packets using the Abridged or Full TCP transport
+auto codec = create_transport_codec(TransportProtocol::Abridged);
+std::vector<uint8_t> payload = {1, 2, 3, 4, 5};
+std::vector<uint8_t> framed_packet = codec->encode_packet(payload);
+
+// Decode stream chunks into complete packets
+auto decoded = codec->decode_packets(framed_packet);
 ```
 
 *Middleware Pipeline*
@@ -205,17 +269,6 @@ client.use([](MiddlewareContext& ctx) -> bool {
     }
     return true; // Continue to next middleware and handlers
 });
-```
-
-*Message Threads & Forum Topics*
-```cpp
-// Reply within a specific thread / forum topic
-client.onMessage(
-    Filters::in_thread(),
-    [](Message msg) {
-        msg.reply_in_thread("Received message in topic #" + std::to_string(*msg.message_thread_id));
-    }
-);
 ```
 
 *User Login with SQLite Session Storage*
@@ -268,44 +321,6 @@ client.onMessage(
 );
 ```
 
-*Scheduled Messages*
-```cpp
-auto schedule_time = std::chrono::system_clock::now() + std::chrono::hours(2);
-
-SendMessageOptions options;
-options.parse_mode = ParseMode::Markdown;
-options.schedule_date = schedule_time;
-
-client.sendMessage(chat_id, "*Reminder:* Team meeting in 10 minutes!", options);
-```
-
-*Inline Keyboards & Callback Queries*
-```cpp
-client.onMessage(
-    Filters::command("menu"),
-    [](Message msg) {
-        InlineKeyboard kb;
-        kb.addButton(0, InlineKeyboardButton::callback("Option A", "action_a"));
-        kb.addButton(0, InlineKeyboardButton::callback("Option B", "action_b"));
-        kb.addButton(1, InlineKeyboardButton::link("GitHub", "https://github.com"));
-        msg.reply("Choose an option:", kb);
-    }
-);
-
-client.onCallbackQuery([](CallbackQuery q) {
-    q.answer("Selected: " + q.data);
-});
-```
-
-*Media & Profile Photo Updates*
-```cpp
-// Send media
-client.sendPhoto(chat_id, InputFile::local("photo.jpg"), "Sample caption");
-
-// Update bot profile photo
-client.setProfilePhoto(InputFile::local("avatar.png"));
-```
-
 ---
 
 **Project Structure**
@@ -315,6 +330,11 @@ cppgram/
 ├── include/cppgram/
 │   ├── client.hpp          # Main client class (sync + async coroutines)
 │   ├── coro.hpp            # C++20 coroutine Task<T> & sync_wait
+│   ├── web_app.hpp         # Telegram Mini Apps & WebApp models
+│   ├── business.hpp        # Telegram Business & Quick Replies models
+│   ├── secret_chat.hpp     # Secret chats & E2EE state models
+│   ├── call.hpp            # Voice & Group Calls models and protocols
+│   ├── transport.hpp       # Standalone MTProto TCP transport codecs
 │   ├── plugin.hpp          # IPlugin base & PluginManager lifecycle
 │   ├── middleware.hpp      # MiddlewarePipeline & MiddlewareContext
 │   ├── thread_pool.hpp     # ThreadPool concurrent worker pool
@@ -326,7 +346,7 @@ cppgram/
 │   ├── user.hpp            # User entity
 │   ├── types.hpp           # Core types, ParseMode, FormattedText, SendMessageOptions
 │   ├── media.hpp           # Media types (Photo, Video, UserProfilePhotos)
-│   ├── keyboard.hpp        # Inline/reply keyboard types
+│   ├── keyboard.hpp        # Inline/reply keyboard types (with WebApp support)
 │   ├── callback_query.hpp  # Callback query type
 │   ├── filters.hpp         # MessageFilter + Filters namespace
 │   ├── handlers.hpp        # Handler structs
@@ -343,14 +363,16 @@ cppgram/
 │   └── core/
 │       ├── entities.cpp    # Entity convenience methods
 │       ├── storage.cpp     # SQLite3 & Memory session storage implementation
-│       ├── filters.cpp     # Filter implementations
-│       └── plugin.cpp      # PluginManager lifecycle implementation
+│       ├── filters.cpp     # Filter implementations (web_app, business, threads)
+│       ├── plugin.cpp      # PluginManager lifecycle implementation
+│       └── transport.cpp   # MTProto transport codecs (Abridged, Intermediate, Full)
 ├── tests/
-│   └── phase1_smoke.cpp    # Test suite covering v0.1, v0.2, and v0.3 features
+│   └── phase1_smoke.cpp    # Test suite covering v0.1, v0.2, v0.3, and v0.4 features
 ├── examples/
 │   ├── hello.cpp           # Basic bot demonstration
 │   ├── v02_features_demo.cpp # Showcase of v0.2 features
-│   └── v03_features_demo.cpp # Showcase of v0.3 features (Plugins, Middleware, Threads, Pool)
+│   ├── v03_features_demo.cpp # Showcase of v0.3 features
+│   └── v04_features_demo.cpp # Showcase of v0.4 features (WebApps, Business, Calls, Transport)
 └── CMakeLists.txt
 ```
 
@@ -385,15 +407,16 @@ cppgram/
 - [x] Telegram Stories domain models (`StoryItem`, `StoryPrivacySettings`, `Stories`)
 - [x] Thread pool concurrency & worker sizing (`ThreadPool`, `setThreadPoolSize`)
 
-*Version 0.4 (Planned)*
-- [ ] Direct MTProto transport layer (TDLib-free standalone backend)
-- [ ] End-to-end secret chats support
-- [ ] Custom business bots and Telegram Mini App bot integration
-- [ ] Voice and Video calls WebRTC bindings
+*Version 0.4 (Completed)*
+- [x] Telegram Mini Apps & Web Apps (`WebAppInfo`, `WebAppData`, `Filters::webAppData`, WebApp buttons)
+- [x] Telegram Business Bots & Quick Replies (`BusinessConnection`, `QuickReplyShortcut`, `Filters::business`)
+- [x] End-to-end secret chats support (`SecretChat`, `SecretChatState`, `createSecretChat`, `closeSecretChat`)
+- [x] Voice and Group calls models & protocols (`GroupCall`, `GroupCallParticipant`, `CallProtocol`)
+- [x] Standalone MTProto transport packet codecs (`AbridgedCodec`, `IntermediateCodec`, `FullCodec` with IEEE 802.3 CRC32)
 
-*Version 1.0*
+*Version 1.0 (Planned)*
 - [ ] Stable API
-- [ ] Full documentation
+- [ ] Full documentation & tutorials
 - [ ] Production-ready release
 
 ---

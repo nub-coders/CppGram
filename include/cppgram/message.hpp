@@ -6,6 +6,7 @@
 #include "cppgram/user.hpp"
 #include "cppgram/media.hpp"
 #include "cppgram/keyboard.hpp"
+#include "cppgram/web_app.hpp"
 
 namespace cppgram {
 class IBackend;
@@ -21,8 +22,9 @@ public:
     Timestamp   date{};
     bool        outgoing{false};
     MediaType   media{MediaType::None};
-    std::optional<MessageId> reply_to;
-    std::optional<int64_t>   message_thread_id;
+    std::optional<MessageId>   reply_to;
+    std::optional<int64_t>     message_thread_id;
+    std::optional<std::string> business_connection_id;
     std::optional<ForwardInfo> forward_info;
     std::optional<Timestamp>   schedule_date;
 
@@ -41,11 +43,12 @@ public:
     std::optional<StickerInfo>    sticker;
 
     // Rich content
-    std::optional<Poll>     poll;
-    std::optional<Location> location;
-    std::optional<Contact>  contact;
-    std::optional<Venue>    venue;
-    std::optional<Dice>     dice;
+    std::optional<Poll>        poll;
+    std::optional<Location>    location;
+    std::optional<Contact>     contact;
+    std::optional<Venue>       venue;
+    std::optional<Dice>        dice;
+    std::optional<WebAppData>  web_app_data;
 
     // Reply markup
     std::optional<InlineKeyboard> reply_markup;

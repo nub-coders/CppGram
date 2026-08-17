@@ -25,6 +25,11 @@
 #include "cppgram/plugin.hpp"
 #include "cppgram/middleware.hpp"
 #include "cppgram/thread_pool.hpp"
+#include "cppgram/web_app.hpp"
+#include "cppgram/business.hpp"
+#include "cppgram/secret_chat.hpp"
+#include "cppgram/call.hpp"
+#include "cppgram/transport.hpp"
 
 namespace cppgram {
 class ClientImpl;
@@ -80,6 +85,23 @@ public:
     std::vector<Message> getMessageThreadHistory(ChatId chat_id, MessageId message_id,
                                                  MessageId from_message_id = 0,
                                                  int offset = 0, int limit = 100);
+
+    // ---- Secret Chats (E2EE) ----
+    SecretChat           createSecretChat(UserId user_id);
+    void                 closeSecretChat(int32_t secret_chat_id);
+    SecretChat           getSecretChat(int32_t secret_chat_id);
+
+    // ---- Business Bots & Connections ----
+    BusinessConnection   getBusinessConnection(const std::string& business_connection_id);
+
+    // ---- Voice & Group Calls ----
+    GroupCall            getGroupCall(int32_t group_call_id);
+    void                 joinGroupCall(int32_t group_call_id, const CallProtocol& protocol = {});
+    void                 leaveGroupCall(int32_t group_call_id);
+
+    // ---- Web Apps & Mini Apps ----
+    void                 answerWebAppQuery(const std::string& web_app_query_id,
+                                           const SentWebAppMessage& result);
 
     // ---- Text messaging ----
     Message sendMessage(ChatId chat_id, const std::string& text,
@@ -269,24 +291,33 @@ public:
                          std::function<void(CallbackQuery)> cb);
 
     // ---- Async Coroutines (C++20) ----
-    Task<Message>           asyncSendMessage(ChatId chat_id, const std::string& text,
-                                             std::optional<MessageId> reply_to = std::nullopt);
-    Task<Message>           asyncSendMessage(ChatId chat_id, const std::string& text,
-                                             const SendMessageOptions& options,
-                                             std::optional<MessageId> reply_to = std::nullopt);
-    Task<Message>           asyncSendMessage(ChatId chat_id, const std::string& text,
-                                             ParseMode parse_mode,
-                                             const SendMessageOptions& options = {},
-                                             std::optional<MessageId> reply_to = std::nullopt);
-    Task<User>              asyncGetMe();
-    Task<User>              asyncGetUser(UserId id);
-    Task<Chat>              asyncGetChat(ChatId id);
-    Task<MessageThreadInfo> asyncGetMessageThread(ChatId chat_id, MessageId message_id);
+    Task<Message>              asyncSendMessage(ChatId chat_id, const std::string& text,
+                                                std::optional<MessageId> reply_to = std::nullopt);
+    Task<Message>              asyncSendMessage(ChatId chat_id, const std::string& text,
+                                                const SendMessageOptions& options,
+                                                std::optional<MessageId> reply_to = std::nullopt);
+    Task<Message>              asyncSendMessage(ChatId chat_id, const std::string& text,
+                                                ParseMode parse_mode,
+                                                const SendMessageOptions& options = {},
+                                                std::optional<MessageId> reply_to = std::nullopt);
+    Task<User>                 asyncGetMe();
+    Task<User>                 asyncGetUser(UserId id);
+    Task<Chat>                 asyncGetChat(ChatId id);
+    Task<MessageThreadInfo>    asyncGetMessageThread(ChatId chat_id, MessageId message_id);
     Task<std::vector<Message>> asyncGetMessageThreadHistory(ChatId chat_id, MessageId message_id,
                                                            MessageId from_message_id = 0,
                                                            int offset = 0, int limit = 100);
-    Task<void>              asyncDeleteMessages(ChatId chat_id, std::vector<MessageId> message_ids);
-    Task<void>              asyncEditMessage(ChatId chat_id, MessageId msg_id, const std::string& text);
+    Task<SecretChat>           asyncCreateSecretChat(UserId user_id);
+    Task<void>                 asyncCloseSecretChat(int32_t secret_chat_id);
+    Task<SecretChat>           asyncGetSecretChat(int32_t secret_chat_id);
+    Task<BusinessConnection>   asyncGetBusinessConnection(const std::string& business_connection_id);
+    Task<GroupCall>            asyncGetGroupCall(int32_t group_call_id);
+    Task<void>                 asyncJoinGroupCall(int32_t group_call_id, const CallProtocol& protocol = {});
+    Task<void>                 asyncLeaveGroupCall(int32_t group_call_id);
+    Task<void>                 asyncAnswerWebAppQuery(const std::string& web_app_query_id,
+                                                      const SentWebAppMessage& result);
+    Task<void>                 asyncDeleteMessages(ChatId chat_id, std::vector<MessageId> message_ids);
+    Task<void>                 asyncEditMessage(ChatId chat_id, MessageId msg_id, const std::string& text);
 
     // ---- Event loop ----
     void run();

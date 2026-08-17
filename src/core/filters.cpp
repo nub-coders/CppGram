@@ -132,4 +132,22 @@ MessageFilter in_thread() {
     };
 }
 
+MessageFilter webAppData() {
+    return [](const Message& m) {
+        return m.web_app_data.has_value();
+    };
+}
+
+MessageFilter business() {
+    return [](const Message& m) {
+        return m.business_connection_id.has_value();
+    };
+}
+
+MessageFilter businessConnectionId(const std::string& connection_id) {
+    return [connection_id](const Message& m) {
+        return m.business_connection_id.has_value() && *m.business_connection_id == connection_id;
+    };
+}
+
 } // namespace cppgram::Filters

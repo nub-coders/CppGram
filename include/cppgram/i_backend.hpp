@@ -16,6 +16,11 @@ struct FileInfo;
 struct PhotoSize;
 struct UserProfilePhotos;
 struct MessageThreadInfo;
+struct SentWebAppMessage;
+struct SecretChat;
+struct BusinessConnection;
+struct GroupCall;
+struct CallProtocol;
 
 class IBackend {
 public:
@@ -182,6 +187,23 @@ public:
     virtual void answerCallbackQuery(std::int64_t query_id, const std::string& text,
                                      bool show_alert, const std::string& url,
                                      int cache_time) = 0;
+
+    // ---- Web Apps ----
+    virtual void answerWebAppQuery(const std::string& web_app_query_id,
+                                   const SentWebAppMessage& result) = 0;
+
+    // ---- Secret Chats ----
+    virtual SecretChat createSecretChat(UserId user_id) = 0;
+    virtual void closeSecretChat(int32_t secret_chat_id) = 0;
+    virtual SecretChat getSecretChat(int32_t secret_chat_id) = 0;
+
+    // ---- Business Bots ----
+    virtual BusinessConnection getBusinessConnection(const std::string& business_connection_id) = 0;
+
+    // ---- Calls ----
+    virtual GroupCall getGroupCall(int32_t group_call_id) = 0;
+    virtual void joinGroupCall(int32_t group_call_id, const CallProtocol& protocol) = 0;
+    virtual void leaveGroupCall(int32_t group_call_id) = 0;
 };
 
 } // namespace cppgram

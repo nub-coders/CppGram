@@ -26,6 +26,8 @@
 #include "cppgram/keyboard.hpp"
 #include "cppgram/callback_query.hpp"
 #include "cppgram/thread.hpp"
+#include "cppgram/secret_chat.hpp"
+#include "cppgram/call.hpp"
 #include "cppgram/i_backend.hpp"
 
 namespace cppgram::detail {
@@ -972,6 +974,45 @@ inline UserProfilePhotos convert_user_profile_photos(const td_api::chatPhotos& p
         }
         if (!photo.empty()) out.photos.push_back(std::move(photo));
     }
+    return out;
+}
+
+/**
+ * @brief Converts a TDLib secretChat object into a SecretChat domain object.
+ */
+inline SecretChat convert_secret_chat(const td_api::secretChat& sc) {
+    SecretChat out;
+    out.id = sc.id_;
+    out.user_id = sc.user_id_;
+    out.is_outbound = sc.is_outbound_;
+    out.layer = sc.layer_;
+    out.key_hash = sc.key_hash_;
+    if (sc.state_) {
+        if (sc.state_->get_id() == td_api::secretChatStateReady::ID) {
+            out.state = SecretChatState::Ready;
+        } else if (sc.state_->get_id() == td_api::secretChatStateClosed::ID) {
+            out.state = SecretChatState::Closed;
+        } else {
+            out.state = SecretChatState::Pending;
+        }
+    }
+    return out;
+}
+
+/**
+ * @brief Converts a TDLib groupCall object into a GroupCall domain object.
+ */
+inline GroupCall convert_group_call(const td_api::groupCall& gc) {
+    GroupCall out;
+    out.id = gc.id_;
+    out.title = gc.title_;
+    out.duration = gc.duration_;
+    out.is_active = gc.is_active_;
+    out.is_joined = gc.is_joined_;
+    out.need_rejoin = gc.need_rejoin_;
+    out.can_enable_video = gc.can_enable_video_;
+    out.participant_count = gc.participant_count_;
+    out.loaded_all_participants = gc.loaded_all_participants_;
     return out;
 }
 

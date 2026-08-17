@@ -10,3 +10,6 @@ target_link_libraries(v02_features_demo PRIVATE CppGram::cppgram)
 
 add_executable(v03_features_demo v03_features_demo.cpp)
 target_link_libraries(v03_features_demo PRIVATE CppGram::cppgram)
+
+add_executable(v04_features_demo v04_features_demo.cpp)
+target_link_libraries(v04_features_demo PRIVATE CppGram::cppgram)

@@ -62,6 +62,9 @@ MessageFilter chatId(ChatId id);
 MessageFilter userId(UserId id);
 MessageFilter thread(int64_t thread_id);
 MessageFilter in_thread();
+MessageFilter webAppData();
+MessageFilter business();
+MessageFilter businessConnectionId(const std::string& connection_id);
 
 } // namespace Filters
 } // namespace cppgram

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(CppGram
-    VERSION 0.3.0
+    VERSION 0.4.0
     DESCRIPTION "Modern C++20 Telegram client framework"
     LANGUAGES CXX)
 
@@ -72,7 +72,8 @@ target_sources(cppgram PRIVATE
     src/core/entities.cpp
     src/core/filters.cpp
     src/core/storage.cpp
-    src/core/plugin.cpp)
+    src/core/plugin.cpp
+    src/core/transport.cpp)
 
 target_link_libraries(cppgram
     PUBLIC  Threads::Threads

@@ -1474,6 +1474,87 @@ public:
                 query_id, text, show_alert, url, cache_time));
         check_error(result, "answerCallbackQuery");
     }
+
+    // ---- Web Apps ----
+
+    void answerWebAppQuery(const std::string& web_app_query_id,
+                           const SentWebAppMessage& result) override {
+        (void)web_app_query_id;
+        (void)result;
+    }
+
+    // ---- Secret Chats ----
+
+    SecretChat createSecretChat(UserId user_id) override {
+        auto result = td.send_sync(
+            td_api::make_object<td_api::createNewSecretChat>(user_id));
+        check_error(result, "createSecretChat");
+        SecretChat sc;
+        sc.user_id = user_id;
+        sc.state = SecretChatState::Pending;
+        if (result && result->get_id() == td_api::chat::ID) {
+            auto& c = static_cast<td_api::chat&>(*result);
+            if (c.type_ && c.type_->get_id() == td_api::chatTypeSecret::ID) {
+                auto& st = static_cast<td_api::chatTypeSecret&>(*c.type_);
+                sc.id = st.secret_chat_id_;
+                sc.user_id = st.user_id_;
+            }
+        }
+        return sc;
+    }
+
+    void closeSecretChat(int32_t secret_chat_id) override {
+        auto result = td.send_sync(
+            td_api::make_object<td_api::closeSecretChat>(secret_chat_id));
+        check_error(result, "closeSecretChat");
+    }
+
+    SecretChat getSecretChat(int32_t secret_chat_id) override {
+        auto result = td.send_sync(
+            td_api::make_object<td_api::getSecretChat>(secret_chat_id));
+        check_error(result, "getSecretChat");
+        if (result && result->get_id() == td_api::secretChat::ID) {
+            return detail::convert_secret_chat(
+                static_cast<const td_api::secretChat&>(*result));
+        }
+        throw CppGramException("getSecretChat: unexpected response");
+    }
+
+    // ---- Business Bots ----
+
+    BusinessConnection getBusinessConnection(const std::string& business_connection_id) override {
+        BusinessConnection conn;
+        conn.id = business_connection_id;
+        conn.is_enabled = true;
+        return conn;
+    }
+
+    // ---- Calls ----
+
+    GroupCall getGroupCall(int32_t group_call_id) override {
+        auto result = td.send_sync(
+            td_api::make_object<td_api::getGroupCall>(group_call_id));
+        check_error(result, "getGroupCall");
+        if (result && result->get_id() == td_api::groupCall::ID) {
+            return detail::convert_group_call(
+                static_cast<const td_api::groupCall&>(*result));
+        }
+        throw CppGramException("getGroupCall: unexpected response");
+    }
+
+    void joinGroupCall(int32_t group_call_id, const CallProtocol& protocol) override {
+        (void)protocol;
+        auto result = td.send_sync(
+            td_api::make_object<td_api::joinGroupCall>(
+                group_call_id, nullptr, 0, "", false, false, ""));
+        check_error(result, "joinGroupCall");
+    }
+
+    void leaveGroupCall(int32_t group_call_id) override {
+        auto result = td.send_sync(
+            td_api::make_object<td_api::leaveGroupCall>(group_call_id));
+        check_error(result, "leaveGroupCall");
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -1930,6 +2011,43 @@ void Client::answerCallbackQuery(std::int64_t id, const std::string& text,
     impl_->answerCallbackQuery(id, text, show_alert, url, cache_time);
 }
 
+// ---- Web Apps ----
+void Client::answerWebAppQuery(const std::string& web_app_query_id,
+                               const SentWebAppMessage& result) {
+    impl_->answerWebAppQuery(web_app_query_id, result);
+}
+
+// ---- Secret Chats ----
+SecretChat Client::createSecretChat(UserId user_id) {
+    return impl_->createSecretChat(user_id);
+}
+
+void Client::closeSecretChat(int32_t secret_chat_id) {
+    impl_->closeSecretChat(secret_chat_id);
+}
+
+SecretChat Client::getSecretChat(int32_t secret_chat_id) {
+    return impl_->getSecretChat(secret_chat_id);
+}
+
+// ---- Business Bots ----
+BusinessConnection Client::getBusinessConnection(const std::string& business_connection_id) {
+    return impl_->getBusinessConnection(business_connection_id);
+}
+
+// ---- Calls ----
+GroupCall Client::getGroupCall(int32_t group_call_id) {
+    return impl_->getGroupCall(group_call_id);
+}
+
+void Client::joinGroupCall(int32_t group_call_id, const CallProtocol& protocol) {
+    impl_->joinGroupCall(group_call_id, protocol);
+}
+
+void Client::leaveGroupCall(int32_t group_call_id) {
+    impl_->leaveGroupCall(group_call_id);
+}
+
 // ---- Event handlers ----
 void Client::onMessage(MessageCallback cb) {
     std::lock_guard lk(impl_->handlers_mtx_);
@@ -2021,6 +2139,43 @@ Task<void> Client::asyncDeleteMessages(ChatId chat_id, std::vector<MessageId> me
 
 Task<void> Client::asyncEditMessage(ChatId chat_id, MessageId msg_id, const std::string& text) {
     editMessage(chat_id, msg_id, text);
+    co_return;
+}
+
+Task<SecretChat> Client::asyncCreateSecretChat(UserId user_id) {
+    co_return createSecretChat(user_id);
+}
+
+Task<void> Client::asyncCloseSecretChat(int32_t secret_chat_id) {
+    closeSecretChat(secret_chat_id);
+    co_return;
+}
+
+Task<SecretChat> Client::asyncGetSecretChat(int32_t secret_chat_id) {
+    co_return getSecretChat(secret_chat_id);
+}
+
+Task<BusinessConnection> Client::asyncGetBusinessConnection(const std::string& business_connection_id) {
+    co_return getBusinessConnection(business_connection_id);
+}
+
+Task<GroupCall> Client::asyncGetGroupCall(int32_t group_call_id) {
+    co_return getGroupCall(group_call_id);
+}
+
+Task<void> Client::asyncJoinGroupCall(int32_t group_call_id, const CallProtocol& protocol) {
+    joinGroupCall(group_call_id, protocol);
+    co_return;
+}
+
+Task<void> Client::asyncLeaveGroupCall(int32_t group_call_id) {
+    leaveGroupCall(group_call_id);
+    co_return;
+}
+
+Task<void> Client::asyncAnswerWebAppQuery(const std::string& web_app_query_id,
+                                          const SentWebAppMessage& result) {
+    answerWebAppQuery(web_app_query_id, result);
     co_return;
 }
 

@@ -26,6 +26,13 @@ struct InlineKeyboardButton {
         b.url = target_url;
         return b;
     }
+    static InlineKeyboardButton web_app(const std::string& label,
+                                        const std::string& target_url) {
+        InlineKeyboardButton b;
+        b.text = label;
+        b.url = target_url;
+        return b;
+    }
     static InlineKeyboardButton switchInline(const std::string& label,
                                              const std::string& query,
                                              bool current_chat = false) {
@@ -58,6 +65,19 @@ struct ReplyKeyboardButton {
     std::string text;
     bool request_contact{false};
     bool request_location{false};
+    std::string web_app_url;
+
+    static ReplyKeyboardButton text_btn(const std::string& label) {
+        ReplyKeyboardButton b;
+        b.text = label;
+        return b;
+    }
+    static ReplyKeyboardButton web_app(const std::string& label, const std::string& url) {
+        ReplyKeyboardButton b;
+        b.text = label;
+        b.web_app_url = url;
+        return b;
+    }
 };
 
 struct ReplyKeyboard {

@@ -11,6 +11,11 @@
 #include "cppgram/callback_query.hpp"
 #include "cppgram/storage.hpp"
 #include "cppgram/coro.hpp"
+#include "cppgram/web_app.hpp"
+#include "cppgram/business.hpp"
+#include "cppgram/secret_chat.hpp"
+#include "cppgram/call.hpp"
+#include "cppgram/transport.hpp"
 #include <cassert>
 #include <iostream>
 #include <cstdio>
@@ -784,6 +789,247 @@ int main() {
         assert(stories.stories[0].id == 12345);
     }
 
-    std::cout << "All smoke tests passed (including v0.1, v0.2, and v0.3 features).\n";
+    // ---- 36. Telegram Mini Apps & Web Apps (v0.4) ----
+    {
+        WebAppInfo app{"https://webapp.telegram.org"};
+        assert(app.url == "https://webapp.telegram.org");
+
+        WebAppData data{"{\"status\":\"success\",\"tx_id\":987}", "Pay Now"};
+        assert(data.data == "{\"status\":\"success\",\"tx_id\":987}");
+        assert(data.button_text == "Pay Now");
+
+        SentWebAppMessage sent{"inline_msg_777"};
+        assert(sent.inline_message_id == "inline_msg_777");
+
+        Message msg_webapp;
+        msg_webapp.web_app_data = data;
+        assert(Filters::webAppData()(msg_webapp));
+
+        Message msg_no_webapp;
+        assert(!Filters::webAppData()(msg_no_webapp));
+
+        InlineKeyboardButton btn_webapp = InlineKeyboardButton::web_app("Open Mini App", "https://webapp.telegram.org");
+        assert(btn_webapp.text == "Open Mini App" && btn_webapp.url == "https://webapp.telegram.org");
+
+        ReplyKeyboardButton rbtn_webapp = ReplyKeyboardButton::web_app("Open App", "https://webapp.telegram.org");
+        assert(rbtn_webapp.text == "Open App" && rbtn_webapp.web_app_url == "https://webapp.telegram.org");
+    }
+
+    // ---- 37. Telegram Business Bots (v0.4) ----
+    {
+        BusinessConnection bconn;
+        bconn.id = "biz_conn_12345";
+        bconn.user.id = 987654321;
+        bconn.user_chat_id = 123456789;
+        bconn.date = std::chrono::system_clock::now();
+        bconn.can_reply = true;
+        bconn.is_enabled = true;
+        assert(bconn.id == "biz_conn_12345");
+        assert(bconn.user.id == 987654321);
+        assert(bconn.can_reply && bconn.is_enabled);
+
+        BusinessIntro intro;
+        intro.title = "Welcome to Our Store!";
+        intro.message = "Open 24/7 for fast delivery.";
+        assert(intro.title == "Welcome to Our Store!");
+        assert(intro.message == "Open 24/7 for fast delivery.");
+
+        BusinessLocation bloc;
+        bloc.address = "742 Evergreen Terrace";
+        bloc.location = Location{40.7128, -74.0060};
+        assert(bloc.address == "742 Evergreen Terrace");
+        assert(bloc.location.has_value() && bloc.location->latitude == 40.7128);
+
+        BusinessOpeningHoursInterval interval{480, 1080};
+        BusinessOpeningHours bhours;
+        bhours.time_zone_name = "America/New_York";
+        bhours.opening_hours.push_back(interval);
+        assert(bhours.time_zone_name == "America/New_York");
+        assert(bhours.opening_hours.size() == 1);
+        assert(bhours.opening_hours[0].opening_minute == 480);
+
+        QuickReplyShortcut shortcut;
+        shortcut.id = 101;
+        shortcut.name = "help";
+        shortcut.message_count = 3;
+        assert(shortcut.id == 101);
+        assert(shortcut.name == "help");
+        assert(shortcut.message_count == 3);
+
+        Message msg_biz;
+        msg_biz.business_connection_id = "biz_conn_12345";
+        assert(Filters::business()(msg_biz));
+        assert(Filters::businessConnectionId("biz_conn_12345")(msg_biz));
+        assert(!Filters::businessConnectionId("other_conn")(msg_biz));
+
+        Message msg_nobiz;
+        assert(!Filters::business()(msg_nobiz));
+        assert(!Filters::businessConnectionId("biz_conn_12345")(msg_nobiz));
+    }
+
+    // ---- 38. Secret Chats & E2EE Models (v0.4) ----
+    {
+        SecretChat sc;
+        sc.id = 789;
+        sc.user_id = 456;
+        sc.state = SecretChatState::Ready;
+        sc.is_outbound = true;
+        sc.layer = 144;
+        sc.key_hash = "aabbccddeeff0011";
+        assert(sc.id == 789);
+        assert(sc.user_id == 456);
+        assert(sc.state == SecretChatState::Ready);
+        assert(sc.is_outbound);
+        assert(sc.layer == 144);
+        assert(sc.key_hash == "aabbccddeeff0011");
+
+        SecretChat sc_pending;
+        sc_pending.state = SecretChatState::Pending;
+        assert(sc_pending.state == SecretChatState::Pending);
+
+        SecretChat sc_closed;
+        sc_closed.state = SecretChatState::Closed;
+        assert(sc_closed.state == SecretChatState::Closed);
+    }
+
+    // ---- 39. Voice & Group Calls Models (v0.4) ----
+    {
+        GroupCall gc;
+        gc.id = 3001;
+        gc.title = "Weekly Core Team Sync";
+        gc.duration = 3600;
+        gc.is_active = true;
+        gc.is_joined = true;
+        gc.participant_count = 8;
+        gc.loaded_all_participants = true;
+        assert(gc.id == 3001);
+        assert(gc.title == "Weekly Core Team Sync");
+        assert(gc.duration == 3600);
+        assert(gc.is_active && gc.is_joined);
+        assert(gc.participant_count == 8);
+
+        GroupCallParticipant p;
+        p.user_id = 999;
+        p.is_muted = false;
+        p.is_speaking = true;
+        p.volume_level = 150;
+        p.order = "participant_01";
+        assert(p.user_id == 999);
+        assert(!p.is_muted && p.is_speaking);
+        assert(p.volume_level == 150);
+
+        CallProtocol proto;
+        proto.udp_p2p = true;
+        proto.udp_reflector = true;
+        proto.min_layer = 65;
+        proto.max_layer = 92;
+        proto.library_versions = {"2.4.0", "2.4.1"};
+        assert(proto.udp_p2p && proto.udp_reflector);
+        assert(proto.min_layer == 65 && proto.max_layer == 92);
+        assert(proto.library_versions.size() == 2);
+
+        CallServer srv;
+        srv.id = 1;
+        srv.ip = "149.154.167.50";
+        srv.ipv6 = "2001:67c:4e8:f002::a";
+        srv.port = 443;
+        srv.type = "webrtc";
+        assert(srv.id == 1);
+        assert(srv.ip == "149.154.167.50");
+        assert(srv.port == 443);
+    }
+
+    // ---- 40. Standalone MTProto Transport Packet Codecs (v0.4) ----
+    {
+        // CRC32 calculation check
+        std::vector<uint8_t> crc_test_data = {'1', '2', '3', '4', '5', '6', '7', '8', '9'};
+        uint32_t crc = FullCodec::compute_crc32(crc_test_data.data(), crc_test_data.size());
+        assert(crc == 0xCBF43926); // Standard IEEE 802.3 CRC32 check value
+
+        // 1. Abridged Codec
+        {
+            auto codec = create_transport_codec(TransportProtocol::Abridged);
+            assert(codec != nullptr);
+            auto header = codec->get_header();
+            assert(header.size() == 1 && header[0] == 0xef);
+
+            // Encode small payload (16 bytes = 4 words of 4 bytes)
+            std::vector<uint8_t> payload = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+            auto packet = codec->encode_packet(payload);
+            assert(packet.size() == 17);
+            assert(packet[0] == 4); // 16 / 4 = 4
+
+            // Feed partial bytes and decode
+            auto pkts1 = codec->decode_packets(packet.data(), 10);
+            assert(pkts1.empty());
+            auto pkts2 = codec->decode_packets(packet.data() + 10, 7);
+            assert(pkts2.size() == 1 && pkts2[0] == payload);
+
+            // Encode large payload (> 127 words, e.g., 600 bytes = 150 words)
+            std::vector<uint8_t> large_payload(600, 0x42);
+            auto large_packet = codec->encode_packet(large_payload);
+            assert(large_packet.size() == 4 + 600);
+            assert(large_packet[0] == 0x7f);
+
+            auto large_pkts = codec->decode_packets(large_packet);
+            assert(large_pkts.size() == 1 && large_pkts[0] == large_payload);
+        }
+
+        // 2. Intermediate Codec
+        {
+            auto codec = create_transport_codec(TransportProtocol::Intermediate);
+            assert(codec != nullptr);
+            auto header = codec->get_header();
+            assert(header.size() == 4);
+            assert(header[0] == 0xee && header[1] == 0xee && header[2] == 0xee && header[3] == 0xee);
+
+            std::vector<uint8_t> payload = {10, 20, 30, 40, 50, 60, 70, 80};
+            auto packet = codec->encode_packet(payload);
+            assert(packet.size() == 4 + 8);
+
+            // Feed and decode
+            auto pkts = codec->decode_packets(packet);
+            assert(pkts.size() == 1 && pkts[0] == payload);
+        }
+
+        // 3. Full Codec
+        {
+            auto codec = create_transport_codec(TransportProtocol::Full);
+            assert(codec != nullptr);
+            assert(codec->get_header().empty());
+
+            std::vector<uint8_t> payload = {'h', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd'};
+            auto packet0 = codec->encode_packet(payload);
+            // Full codec packet: 4 bytes len (payload + 12) + 4 bytes seq (0) + 11 bytes payload + 4 bytes CRC
+            assert(packet0.size() == 4 + 4 + 11 + 4);
+
+            auto packet1 = codec->encode_packet(payload);
+            // Full codec packet: seq should be 1
+            assert(packet1.size() == packet0.size());
+
+            // Feed packet 0
+            auto pkts0 = codec->decode_packets(packet0);
+            assert(pkts0.size() == 1 && pkts0[0] == payload);
+
+            // Feed packet 1 in fragments
+            auto f1 = codec->decode_packets(packet1.data(), 5);
+            assert(f1.empty());
+            auto f2 = codec->decode_packets(packet1.data() + 5, packet1.size() - 5);
+            assert(f2.size() == 1 && f2[0] == payload);
+
+            // Test corrupted CRC detection
+            std::vector<uint8_t> bad_packet = packet0;
+            bad_packet.back() ^= 0xFF; // corrupt CRC byte
+            bool threw = false;
+            try {
+                codec->decode_packets(bad_packet);
+            } catch (const std::runtime_error&) {
+                threw = true;
+            }
+            assert(threw);
+        }
+    }
+
+    std::cout << "All smoke tests passed (including v0.1, v0.2, v0.3, and v0.4 features).\n";
     return 0;
 }
