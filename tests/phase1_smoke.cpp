@@ -16,6 +16,10 @@
 #include "cppgram/secret_chat.hpp"
 #include "cppgram/call.hpp"
 #include "cppgram/transport.hpp"
+#include "cppgram/crypto.hpp"
+#include "cppgram/network.hpp"
+#include "cppgram/session.hpp"
+#include "cppgram/cli.hpp"
 #include <cassert>
 #include <iostream>
 #include <cstdio>
@@ -1030,6 +1034,269 @@ int main() {
         }
     }
 
-    std::cout << "All smoke tests passed (including v0.1, v0.2, v0.3, and v0.4 features).\n";
+    // ---- 41. MTProto 2.0 SHA-256 & SHA-1 (v0.5) ----
+    {
+        std::vector<uint8_t> empty_data;
+        auto sha256_empty = CryptoUtils::compute_sha256(empty_data);
+        assert(sha256_empty.size() == 32);
+        // Known SHA-256 of empty string: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+        assert(sha256_empty[0] == 0xe3 && sha256_empty[1] == 0xb0 && sha256_empty[31] == 0x55);
+
+        std::vector<uint8_t> test_data = {'t', 'e', 's', 't'};
+        auto sha1_test = CryptoUtils::compute_sha1(test_data);
+        assert(sha1_test.size() == 20);
+        // Known SHA-1 of "test": a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
+        assert(sha1_test[0] == 0xa9 && sha1_test[1] == 0x4a && sha1_test[19] == 0xd3);
+    }
+
+    // ---- 42. AES-256-IGE Mode Encryption & Decryption (v0.5) ----
+    {
+        std::vector<uint8_t> key(32, 0x11);
+        std::vector<uint8_t> iv(32, 0x22);
+        std::vector<uint8_t> plaintext(64);
+        for (size_t i = 0; i < plaintext.size(); ++i) {
+            plaintext[i] = static_cast<uint8_t>(i * 3 + 1);
+        }
+
+        auto ciphertext = CryptoUtils::aes_ige_encrypt(plaintext, key, iv);
+        assert(ciphertext.size() == plaintext.size());
+        assert(ciphertext != plaintext);
+
+        auto decrypted = CryptoUtils::aes_ige_decrypt(ciphertext, key, iv);
+        assert(decrypted == plaintext);
+
+        // Invalid key size check
+        bool threw_key = false;
+        try {
+            CryptoUtils::aes_ige_encrypt(plaintext, std::vector<uint8_t>(16), iv);
+        } catch (const std::invalid_argument&) {
+            threw_key = true;
+        }
+        assert(threw_key);
+
+        // Invalid plaintext size check (not multiple of 16)
+        bool threw_align = false;
+        try {
+            CryptoUtils::aes_ige_encrypt(std::vector<uint8_t>(15), key, iv);
+        } catch (const std::invalid_argument&) {
+            threw_align = true;
+        }
+        assert(threw_align);
+    }
+
+    // ---- 43. AES-256-CTR Mode Encryption & Decryption (v0.5) ----
+    {
+        std::vector<uint8_t> key(32, 0x33);
+        std::vector<uint8_t> iv(16, 0x44);
+        std::vector<uint8_t> message = {'c', 'p', 'p', 'g', 'r', 'a', 'm', ' ', 'c', 't', 'r'};
+
+        auto enc = CryptoUtils::aes_ctr_encrypt(message, key, iv);
+        assert(enc.size() == message.size());
+        assert(enc != message);
+
+        auto dec = CryptoUtils::aes_ctr_decrypt(enc, key, iv);
+        assert(dec == message);
+    }
+
+    // ---- 44. MTProto 2.0 Key Derivation Function (KDF) (v0.5) ----
+    {
+        std::vector<uint8_t> auth_key(256);
+        for (size_t i = 0; i < 256; ++i) {
+            auth_key[i] = static_cast<uint8_t>(i ^ 0x55);
+        }
+        std::vector<uint8_t> msg_key(16, 0x66);
+
+        std::vector<uint8_t> client_aes_key, client_aes_iv;
+        bool ok_client = CryptoUtils::kdf_mtproto2(auth_key, msg_key, true, client_aes_key, client_aes_iv);
+        assert(ok_client);
+        assert(client_aes_key.size() == 32);
+        assert(client_aes_iv.size() == 32);
+
+        std::vector<uint8_t> server_aes_key, server_aes_iv;
+        bool ok_server = CryptoUtils::kdf_mtproto2(auth_key, msg_key, false, server_aes_key, server_aes_iv);
+        assert(ok_server);
+        assert(server_aes_key.size() == 32);
+        assert(server_aes_iv.size() == 32);
+
+        // Client and Server keys should differ because x offset differs (0 vs 8)
+        assert(client_aes_key != server_aes_key);
+        assert(client_aes_iv != server_aes_iv);
+    }
+
+    // ---- 45. MTProto 2.0 msg_key & AuthKey ID (v0.5) ----
+    {
+        std::vector<uint8_t> auth_key(256);
+        for (size_t i = 0; i < 256; ++i) {
+            auth_key[i] = static_cast<uint8_t>((i * 17) & 0xFF);
+        }
+        std::vector<uint8_t> payload = {1, 2, 3, 4, 5, 6, 7, 8};
+
+        auto msg_key_client = CryptoUtils::compute_msg_key(auth_key, payload, true);
+        assert(msg_key_client.size() == 16);
+
+        auto msg_key_server = CryptoUtils::compute_msg_key(auth_key, payload, false);
+        assert(msg_key_server.size() == 16);
+        assert(msg_key_client != msg_key_server);
+
+        uint64_t key_id = CryptoUtils::compute_auth_key_id(auth_key);
+        assert(key_id != 0);
+
+        auto rand_bytes = CryptoUtils::generate_random_bytes(32);
+        assert(rand_bytes.size() == 32);
+    }
+
+    // ---- 46. DatacenterManager & DC Routing (v0.5) ----
+    {
+        DatacenterManager dcm;
+        auto primary = dcm.get_primary_dc();
+        assert(primary != nullptr);
+        assert(primary->id == 2); // DC 2 Amsterdam is default
+        assert(primary->ip_v4 == "149.154.167.51");
+        assert(primary->port == 443);
+
+        auto dc1 = dcm.get_dc(1);
+        assert(dc1 != nullptr && dc1->ip_v4 == "149.154.175.53");
+
+        auto dc5 = dcm.get_dc(5);
+        assert(dc5 != nullptr && dc5->ip_v4 == "91.108.56.130");
+
+        auto test_dc1 = dcm.get_dc(1, true);
+        assert(test_dc1 != nullptr && test_dc1->is_test);
+        assert(test_dc1->ip_v4 == "149.154.175.10");
+
+        dcm.set_primary_dc(4);
+        assert(dcm.get_primary_dc_id() == 4);
+        assert(dcm.get_primary_dc()->ip_v4 == "149.154.167.91");
+
+        // Custom DC registration
+        DataCenter custom_dc{99, "127.0.0.1", "::1", 8443, false, "Local Mock DC"};
+        dcm.register_custom_dc(custom_dc);
+        auto found = dcm.get_dc(99);
+        assert(found != nullptr && found->name == "Local Mock DC" && found->port == 8443);
+
+        auto all_prods = dcm.get_all_dcs(false);
+        assert(all_prods.size() >= 5);
+    }
+
+    // ---- 47. MTProto Session ID & Monotonic Message ID (v0.5) ----
+    {
+        Session session;
+        assert(session.get_session_id() != 0);
+
+        session.set_server_salt(0x1234567890ABCDEFULL);
+        assert(session.get_server_salt() == 0x1234567890ABCDEFULL);
+
+        session.set_time_offset(50);
+        assert(session.get_time_offset() == 50);
+
+        int64_t id1 = session.generate_msg_id();
+        int64_t id2 = session.generate_msg_id();
+        int64_t id3 = session.generate_msg_id();
+        assert(id1 < id2);
+        assert(id2 < id3);
+        assert((id1 & 3) == 0); // Client message lower 2 bits must be 0
+
+        int32_t s1 = session.generate_seq_no(true);  // content-related -> 1
+        int32_t s2 = session.generate_seq_no(false); // non-content -> 2
+        int32_t s3 = session.generate_seq_no(true);  // content-related -> 3
+        assert(s1 == 1);
+        assert(s2 == 2);
+        assert(s3 == 3);
+    }
+
+    // ---- 48. Session Unencrypted Messages (v0.5) ----
+    {
+        Session session;
+        std::vector<uint8_t> raw_payload = {'r', 'e', 'q', '_', 'p', 'q'};
+        auto packed = session.pack_unencrypted_message(raw_payload);
+        assert(packed.size() == 20 + raw_payload.size());
+
+        int64_t parsed_msg_id = 0;
+        std::vector<uint8_t> unpacked_payload;
+        bool ok = Session::unpack_unencrypted_message(packed, parsed_msg_id, unpacked_payload);
+        assert(ok);
+        assert(parsed_msg_id != 0);
+        assert(unpacked_payload == raw_payload);
+
+        // Malformed unencrypted packet
+        std::vector<uint8_t> bad_packet = {0, 0, 0};
+        assert(!Session::unpack_unencrypted_message(bad_packet, parsed_msg_id, unpacked_payload));
+    }
+
+    // ---- 49. Session Encrypted Messages (MTProto 2.0) (v0.5) ----
+    {
+        std::vector<uint8_t> auth_key(256);
+        for (size_t i = 0; i < 256; ++i) {
+            auth_key[i] = static_cast<uint8_t>((i * 7 + 13) & 0xFF);
+        }
+
+        Session sender(0xAAAAAAAA11112222ULL);
+        sender.set_auth_key(auth_key);
+        sender.set_server_salt(0xBBBBBBBB33334444ULL);
+
+        std::vector<uint8_t> payload = {'g', 'e', 't', '_', 'u', 's', 'e', 'r', '_', 'i', 'n', 'f', 'o'};
+        auto encrypted_packet = sender.pack_encrypted_message(payload, true);
+        assert(encrypted_packet.size() >= 24 + 32);
+
+        // Receiver unpacks with same auth_key
+        Session receiver;
+        receiver.set_auth_key(auth_key);
+
+        int64_t rx_msg_id = 0;
+        int32_t rx_seq_no = 0;
+        std::vector<uint8_t> rx_payload;
+
+        bool ok = receiver.unpack_encrypted_message(encrypted_packet, rx_msg_id, rx_seq_no, rx_payload);
+        assert(ok);
+        assert(rx_payload == payload);
+        assert(rx_msg_id != 0);
+        assert(rx_seq_no == 1);
+    }
+
+    // ---- 50. Interactive CLI & Shell Commands (v0.5) ----
+    {
+        InteractiveCLI cli;
+        assert(cli.has_command("/help"));
+        assert(cli.has_command("/clear"));
+        assert(cli.has_command("/exit"));
+        assert(cli.has_command("/quit"));
+
+        bool custom_ran = false;
+        std::string received_arg;
+
+        cli.register_command(
+            "/send",
+            "Send a message to a chat",
+            "/send <chat_id> <text>",
+            [&](const CommandContext& ctx) {
+                if (ctx.args.size() >= 2) {
+                    custom_ran = true;
+                    received_arg = ctx.args[1];
+                    ctx.out << "Sent to " << ctx.args[0] << ": " << ctx.args[1] << "\n";
+                }
+            });
+
+        assert(cli.has_command("/send"));
+
+        std::ostringstream oss;
+        bool cont = cli.execute_line("/send 12345 \"Hello CppGram v0.5!\"", oss);
+        assert(cont == true);
+        assert(custom_ran == true);
+        assert(received_arg == "Hello CppGram v0.5!");
+        assert(oss.str().find("Sent to 12345: Hello CppGram v0.5!") != std::string::npos);
+
+        // Test help execution
+        std::ostringstream help_oss;
+        cli.execute_line("/help", help_oss);
+        assert(help_oss.str().find("Available Commands") != std::string::npos);
+        assert(help_oss.str().find("/send") != std::string::npos);
+
+        // Test exit command
+        std::ostringstream exit_oss;
+        bool cont_exit = cli.execute_line("/exit", exit_oss);
+        assert(cont_exit == false);
+    }
+
+    std::cout << "All smoke tests passed (including v0.1, v0.2, v0.3, v0.4, and v0.5 features).\n";
     return 0;
 }

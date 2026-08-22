@@ -35,6 +35,29 @@ CppGram brings the developer experience of Pyrogram and Telethon to the C++ ecos
 - Call management API (`getGroupCall`, `joinGroupCall`, `leaveGroupCall`)
 - Coroutine call actions (`asyncGetGroupCall`, `asyncJoinGroupCall`, `asyncLeaveGroupCall`)
 
+*MTProto 2.0 Cryptographic Engine*
+- High-performance AES-256-IGE (`CryptoUtils::aes_ige_encrypt`, `aes_ige_decrypt`) with zero deprecations
+- AES-256-CTR streaming cipher primitives (`CryptoUtils::aes_ctr_encrypt`, `aes_ctr_decrypt`)
+- MTProto 2.0 Key Derivation Function (`CryptoUtils::kdf_mtproto2`) for client and server key/IV generation
+- MTProto 2.0 message key calculation (`CryptoUtils::compute_msg_key`) and AuthKey identifier generation (`CryptoUtils::compute_auth_key_id`)
+- SHA-256 and SHA-1 digest utilities
+
+*Datacenter Network & Socket Layer*
+- Telegram DataCenter manager (`DatacenterManager`) with production (DC 1..5) and test DC endpoints
+- Dynamic DC selection, primary DC switching, and custom DC registration
+- Non-blocking TCP socket connection wrapper (`TcpConnection`) with timeout handling and MTProto codec framing
+
+*MTProto Session & State Management*
+- Session state tracking (`Session`) with session IDs, server salt, and time synchronization offsets
+- Monotonic timestamp-based 64-bit message ID generation (`generate_msg_id`)
+- Content-related sequence numbering (`generate_seq_no`)
+- Unencrypted and encrypted MTProto message envelope serialization and deserialization
+
+*Interactive CLI & REPL Framework*
+- Terminal command dispatcher (`InteractiveCLI`) with custom command registration
+- Built-in commands (`/help`, `/clear`, `/exit`, `/quit`)
+- Argument tokenization with quotes support and interactive prompt / banner configuration
+
 *Standalone MTProto Transport Codecs*
 - Standalone framing and serialization codecs for MTProto TCP streaming
 - `AbridgedCodec` (0xef prefix, compact variable-length framing)
@@ -321,6 +344,24 @@ client.onMessage(
 );
 ```
 
+*MTProto 2.0 Cryptography & Session Management*
+```cpp
+#include <cppgram/crypto.hpp>
+#include <cppgram/session.hpp>
+#include <cppgram/network.hpp>
+
+// Derive MTProto 2.0 AES-IGE keys
+std::vector<uint8_t> auth_key = /* 256 bytes */;
+std::vector<uint8_t> msg_key = /* 16 bytes */;
+std::vector<uint8_t> aes_key, aes_iv;
+CryptoUtils::kdf_mtproto2(auth_key, msg_key, true, aes_key, aes_iv);
+
+// Initialize session and pack encrypted MTProto payload
+Session session;
+session.set_auth_key(auth_key);
+auto frame = session.pack_encrypted_message(payload, true);
+```
+
 ---
 
 **Project Structure**
@@ -330,6 +371,10 @@ cppgram/
 ├── include/cppgram/
 │   ├── client.hpp          # Main client class (sync + async coroutines)
 │   ├── coro.hpp            # C++20 coroutine Task<T> & sync_wait
+│   ├── crypto.hpp          # MTProto 2.0 Crypto (AES-IGE, AES-CTR, KDF, SHA)
+│   ├── network.hpp         # DatacenterManager & TcpConnection socket layer
+│   ├── session.hpp         # Session state, message IDs & MTProto envelope
+│   ├── cli.hpp             # InteractiveCLI command dispatcher & REPL shell
 │   ├── web_app.hpp         # Telegram Mini Apps & WebApp models
 │   ├── business.hpp        # Telegram Business & Quick Replies models
 │   ├── secret_chat.hpp     # Secret chats & E2EE state models
@@ -361,18 +406,24 @@ cppgram/
 │   │   ├── td_conversions.hpp
 │   │   └── log.cpp
 │   └── core/
+│       ├── crypto.cpp      # MTProto 2.0 AES-IGE, AES-CTR & KDF implementation
+│       ├── network.cpp     # Datacenter registry & TCP socket connection
+│       ├── session.cpp     # Monotonic msg_id, envelope packing & unpacking
+│       ├── cli.cpp         # Interactive CLI dispatcher & builtin commands
 │       ├── entities.cpp    # Entity convenience methods
 │       ├── storage.cpp     # SQLite3 & Memory session storage implementation
 │       ├── filters.cpp     # Filter implementations (web_app, business, threads)
 │       ├── plugin.cpp      # PluginManager lifecycle implementation
 │       └── transport.cpp   # MTProto transport codecs (Abridged, Intermediate, Full)
 ├── tests/
-│   └── phase1_smoke.cpp    # Test suite covering v0.1, v0.2, v0.3, and v0.4 features
+│   └── phase1_smoke.cpp    # Test suite covering v0.1, v0.2, v0.3, v0.4, and v0.5 features (50 tests)
 ├── examples/
 │   ├── hello.cpp           # Basic bot demonstration
 │   ├── v02_features_demo.cpp # Showcase of v0.2 features
 │   ├── v03_features_demo.cpp # Showcase of v0.3 features
-│   └── v04_features_demo.cpp # Showcase of v0.4 features (WebApps, Business, Calls, Transport)
+│   ├── v04_features_demo.cpp # Showcase of v0.4 features (WebApps, Business, Calls, Transport)
+│   ├── v05_features_demo.cpp # Showcase of v0.5 features (Crypto, Network, Session, CLI)
+│   └── interactive_cli.cpp # Interactive REPL shell application
 └── CMakeLists.txt
 ```
 
@@ -413,6 +464,12 @@ cppgram/
 - [x] End-to-end secret chats support (`SecretChat`, `SecretChatState`, `createSecretChat`, `closeSecretChat`)
 - [x] Voice and Group calls models & protocols (`GroupCall`, `GroupCallParticipant`, `CallProtocol`)
 - [x] Standalone MTProto transport packet codecs (`AbridgedCodec`, `IntermediateCodec`, `FullCodec` with IEEE 802.3 CRC32)
+
+*Version 0.5 (Completed)*
+- [x] MTProto 2.0 cryptographic subsystem (`CryptoUtils::aes_ige_encrypt`, `aes_ige_decrypt`, `kdf_mtproto2`, `compute_msg_key`)
+- [x] Datacenter Network Management & non-blocking socket stream (`DatacenterManager`, `TcpConnection`)
+- [x] MTProto Session state & message ID sequence tracking (`Session`, `pack_encrypted_message`, `unpack_encrypted_message`)
+- [x] Interactive CLI REPL shell framework (`InteractiveCLI`, `CommandContext`)
 
 *Version 1.0 (Planned)*
 - [ ] Stable API
