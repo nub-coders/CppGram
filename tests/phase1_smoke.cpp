@@ -20,6 +20,8 @@
 #include "cppgram/network.hpp"
 #include "cppgram/session.hpp"
 #include "cppgram/cli.hpp"
+#include "cppgram/tl.hpp"
+#include "cppgram/mtproto_client.hpp"
 #include <cassert>
 #include <iostream>
 #include <cstdio>
@@ -1297,6 +1299,189 @@ int main() {
         assert(cont_exit == false);
     }
 
-    std::cout << "All smoke tests passed (including v0.1, v0.2, v0.3, v0.4, and v0.5 features).\n";
+    // ---- 51. TLWriter & TLReader Basic Scalar Types (v1.0) ----
+    {
+        TLWriter w;
+        w.write_int32(-12345);
+        w.write_uint32(0xDEADBEEF);
+        w.write_int64(-98765432109876LL);
+        w.write_uint64(0x0123456789ABCDEFULL);
+        w.write_double(2.7182818284);
+
+        assert(w.size() == 4 + 4 + 8 + 8 + 8);
+
+        TLReader r(w.data());
+        assert(r.read_int32() == -12345);
+        assert(r.read_uint32() == 0xDEADBEEF);
+        assert(r.read_int64() == -98765432109876LL);
+        assert(r.read_uint64() == 0x0123456789ABCDEFULL);
+        double e = r.read_double();
+        assert(e > 2.71 && e < 2.72);
+        assert(!r.has_remaining());
+    }
+
+    // ---- 52. TLWriter & TLReader int128 & int256 (v1.0) ----
+    {
+        std::array<uint8_t, 16> int128_val;
+        for (size_t i = 0; i < 16; ++i) int128_val[i] = static_cast<uint8_t>(i + 1);
+
+        std::array<uint8_t, 32> int256_val;
+        for (size_t i = 0; i < 32; ++i) int256_val[i] = static_cast<uint8_t>(i * 2 + 1);
+
+        TLWriter w;
+        w.write_int128(int128_val);
+        w.write_int256(int256_val);
+        assert(w.size() == 16 + 32);
+
+        TLReader r(w.data());
+        assert(r.read_int128() == int128_val);
+        assert(r.read_int256() == int256_val);
+        assert(!r.has_remaining());
+    }
+
+    // ---- 53. TL Compact String & Bytes (len <= 253) (v1.0) ----
+    {
+        TLWriter w;
+        // String of 5 bytes: header=1 byte, content=5 bytes, pad=2 bytes (total 8 bytes)
+        w.write_string("hello");
+        assert(w.size() == 8);
+
+        // String of 4 bytes: header=1 byte, content=4 bytes, pad=3 bytes (total 8 bytes)
+        w.write_string("test");
+        assert(w.size() == 16);
+
+        TLReader r(w.data());
+        assert(r.read_string() == "hello");
+        assert(r.read_string() == "test");
+        assert(!r.has_remaining());
+    }
+
+    // ---- 54. TL Extended String & Bytes (len >= 254) (v1.0) ----
+    {
+        std::string large_str(300, 'X');
+        TLWriter w;
+        w.write_string(large_str);
+
+        // header = 4 bytes (0xfe + 3 len bytes), content = 300 bytes (304 bytes total, multiple of 4, pad = 0)
+        assert(w.size() == 304);
+        assert(w.data()[0] == 0xfe);
+
+        TLReader r(w.data());
+        assert(r.read_string() == large_str);
+        assert(!r.has_remaining());
+    }
+
+    // ---- 55. TL Vector Serialization (v1.0) ----
+    {
+        TLWriter w;
+        w.write_vector_header(4);
+        w.write_int32(11);
+        w.write_int32(22);
+        w.write_int32(33);
+        w.write_int32(44);
+
+        TLReader r(w.data());
+        uint32_t count = r.read_vector_header();
+        assert(count == 4);
+        assert(r.read_int32() == 11);
+        assert(r.read_int32() == 22);
+        assert(r.read_int32() == 33);
+        assert(r.read_int32() == 44);
+        assert(!r.has_remaining());
+    }
+
+    // ---- 56. TL Ping & Pong Messages (v1.0) ----
+    {
+        int64_t ping_id = 1234567890LL;
+        auto ping_data = MtprotoClient::build_ping_query(ping_id);
+        assert(ping_data.size() == 4 + 8); // constructor (4) + ping_id (8)
+
+        TLReader r(ping_data);
+        assert(r.read_uint32() == TL_PING);
+        assert(r.read_int64() == ping_id);
+
+        // Build Pong response: constructor (4) + msg_id (8) + ping_id (8)
+        TLWriter pong_w;
+        pong_w.write_uint32(TL_PONG);
+        pong_w.write_int64(987654321LL); // msg_id
+        pong_w.write_int64(ping_id);
+
+        int64_t parsed_ping_id = 0;
+        bool ok_pong = MtprotoClient::parse_pong_response(pong_w.data(), parsed_ping_id);
+        assert(ok_pong);
+        assert(parsed_ping_id == ping_id);
+    }
+
+    // ---- 57. MtprotoClient Initialization & DC Manager (v1.0) ----
+    {
+        ClientConfig cfg;
+        cfg.api_id = 112233;
+        cfg.api_hash = "0123456789abcdef";
+        cfg.backend = BackendType::NativeMTProto;
+        cfg.primary_dc = 4;
+        cfg.test_mode = false;
+
+        MtprotoClient client(cfg);
+        assert(client.get_config().api_id == 112233);
+        assert(client.get_config().backend == BackendType::NativeMTProto);
+        assert(client.get_active_dc_id() == 4);
+        assert(!client.is_connected());
+
+        auto& dcm = client.get_dc_manager();
+        auto dc4 = dcm.get_dc(4);
+        assert(dc4 != nullptr && dc4->ip_v4 == "149.154.167.91");
+    }
+
+    // ---- 58. MtprotoClient Unencrypted RPC Assembly (v1.0) ----
+    {
+        MtprotoClient client;
+        auto ping_pkt = MtprotoClient::build_ping_query(778899LL);
+        auto unenc_frame = client.get_session().pack_unencrypted_message(ping_pkt);
+        assert(unenc_frame.size() == 20 + ping_pkt.size());
+
+        int64_t out_msg_id = 0;
+        std::vector<uint8_t> payload;
+        bool ok = Session::unpack_unencrypted_message(unenc_frame, out_msg_id, payload);
+        assert(ok);
+        assert(out_msg_id != 0);
+        assert(payload == ping_pkt);
+    }
+
+    // ---- 59. MtprotoClient Encrypted Packet Packaging (v1.0) ----
+    {
+        MtprotoClient client;
+        std::vector<uint8_t> auth_key(256);
+        for (size_t i = 0; i < 256; ++i) {
+            auth_key[i] = static_cast<uint8_t>((i * 31 + 7) & 0xFF);
+        }
+        client.get_session().set_auth_key(auth_key);
+
+        std::vector<uint8_t> rpc_query = {'r', 'e', 's', 'o', 'l', 'v', 'e'};
+        auto enc_packet = client.get_session().pack_encrypted_message(rpc_query, true);
+        assert(enc_packet.size() >= 24 + 32);
+
+        Session server_session;
+        server_session.set_auth_key(auth_key);
+        int64_t msg_id = 0;
+        int32_t seq_no = 0;
+        std::vector<uint8_t> decoded_payload;
+        bool ok = server_session.unpack_encrypted_message(enc_packet, msg_id, seq_no, decoded_payload);
+        assert(ok);
+        assert(decoded_payload == rpc_query);
+        assert(seq_no == 1);
+    }
+
+    // ---- 60. ClientConfig BackendType Verification (v1.0) ----
+    {
+        ClientConfig tdlib_cfg;
+        assert(tdlib_cfg.backend == BackendType::TDLib);
+
+        ClientConfig native_cfg;
+        native_cfg.backend = BackendType::NativeMTProto;
+        assert(native_cfg.backend == BackendType::NativeMTProto);
+        assert(native_cfg.backend != tdlib_cfg.backend);
+    }
+
+    std::cout << "All smoke tests passed (including v0.1, v0.2, v0.3, v0.4, v0.5, and v1.0 features).\n";
     return 0;
 }

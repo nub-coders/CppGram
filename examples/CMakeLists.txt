@@ -20,3 +20,7 @@ target_link_libraries(v05_features_demo PRIVATE CppGram::cppgram)
 add_executable(interactive_cli interactive_cli.cpp)
 target_link_libraries(interactive_cli PRIVATE CppGram::cppgram)
 
+add_executable(v10_features_demo v10_features_demo.cpp)
+target_link_libraries(v10_features_demo PRIVATE CppGram::cppgram)
+
+

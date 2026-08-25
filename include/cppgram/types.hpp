@@ -116,6 +116,25 @@ struct ApiCredentials {
 };
 
 /**
+ * @brief Supported client engine backends.
+ */
+enum class BackendType {
+    TDLib,
+    NativeMTProto
+};
+
+/**
+ * @brief Configuration parameters for CppGram client instances.
+ */
+struct ClientConfig {
+    std::int32_t api_id{0};
+    std::string  api_hash;
+    BackendType  backend{BackendType::TDLib};
+    int          primary_dc{2};
+    bool         test_mode{false};
+};
+
+/**
  * @brief File transfer download progress indicator.
  */
 struct FileProgress {
