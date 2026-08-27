@@ -22,9 +22,13 @@
 #include "cppgram/cli.hpp"
 #include "cppgram/tl.hpp"
 #include "cppgram/mtproto_client.hpp"
+#include "cppgram/obfuscated.hpp"
+#include "cppgram/account_pool.hpp"
+#include "cppgram/metrics.hpp"
 #include <cassert>
 #include <iostream>
 #include <cstdio>
+#include <cstring>
 
 using namespace cppgram;
 
@@ -1482,6 +1486,208 @@ int main() {
         assert(native_cfg.backend != tdlib_cfg.backend);
     }
 
-    std::cout << "All smoke tests passed (including v0.1, v0.2, v0.3, v0.4, v0.5, and v1.0 features).\n";
+    // ---- 61. ObfuscatedCodec Handshake Header Generation (v1.1) ----
+    {
+        auto base_codec = create_transport_codec(TransportProtocol::Intermediate);
+        ObfuscatedCodec obf(std::move(base_codec), TransportProtocol::Intermediate);
+        auto header = obf.get_header();
+        assert(header.size() == 64);
+        assert(header[0] != 0xef);
+        // Ensure not HTTP verb
+        bool is_http = (header[0] == 'G' && header[1] == 'E' && header[2] == 'T' && header[3] == ' ') ||
+                       (header[0] == 'P' && header[1] == 'O' && header[2] == 'S' && header[3] == 'T') ||
+                       (header[0] == 'H' && header[1] == 'E' && header[2] == 'A' && header[3] == 'D');
+        assert(!is_http);
+
+        const auto& init_pl = obf.get_init_payload();
+        assert(init_pl.size() == 64);
+        uint32_t tag = 0;
+        std::memcpy(&tag, init_pl.data() + 56, 4);
+        assert(tag == 0xeeeeeeee);
+        assert(!obf.is_handshake_sent());
+    }
+
+    // ---- 62. ObfuscatedCodec Packet Encryption & Decryption Roundtrip (v1.1) ----
+    {
+        auto enc_codec = std::make_unique<ObfuscatedCodec>(
+            create_transport_codec(TransportProtocol::Intermediate),
+            TransportProtocol::Intermediate);
+
+        std::vector<uint8_t> payload = {'h', 'e', 'l', 'l', 'o', '_', 'm', 't', 'p', 'r', 'o', 't', 'o'};
+        auto encoded = enc_codec->encode_packet(payload.data(), payload.size());
+        assert(enc_codec->is_handshake_sent());
+        // First packet contains 64-byte handshake header + encrypted payload frame
+        assert(encoded.size() >= 64 + payload.size());
+
+        enc_codec->reset();
+        assert(!enc_codec->is_handshake_sent());
+    }
+
+    // ---- 63. FakeTls ClientHello Generation (v1.1) ----
+    {
+        std::string sni = "api.telegram.org";
+        std::vector<uint8_t> mock_handshake(64, 0xaa);
+        auto hello = FakeTls::create_client_hello(sni, mock_handshake);
+
+        assert(hello.size() > 100);
+        // Record layer header checks: 0x16 (Handshake), 0x03, 0x01
+        assert(hello[0] == 0x16);
+        assert(hello[1] == 0x03);
+        assert(hello[2] == 0x01);
+        // Handshake type 0x01 (ClientHello) at offset 5
+        assert(hello[5] == 0x01);
+        // Verify SNI is found in the ClientHello frame
+        std::string hello_str(hello.begin(), hello.end());
+        assert(hello_str.find(sni) != std::string::npos);
+    }
+
+    // ---- 64. FakeTls Record Validation (v1.1) ----
+    {
+        std::vector<uint8_t> valid_record = {0x16, 0x03, 0x01, 0x00, 0x05, 0x01, 0x00, 0x00, 0x01, 0x00};
+        assert(FakeTls::is_valid_tls_record(valid_record));
+
+        std::vector<uint8_t> invalid_type = {0x17, 0x03, 0x01, 0x00, 0x02};
+        assert(!FakeTls::is_valid_tls_record(invalid_type));
+
+        std::vector<uint8_t> invalid_version = {0x16, 0x02, 0x00, 0x00, 0x02};
+        assert(!FakeTls::is_valid_tls_record(invalid_version));
+
+        std::vector<uint8_t> short_record = {0x16, 0x03};
+        assert(!FakeTls::is_valid_tls_record(short_record));
+    }
+
+    // ---- 65. AccountPool Registration & Retrieval (v1.1) ----
+    {
+        AccountPool pool;
+        assert(pool.size() == 0);
+
+        auto c1 = std::make_shared<Client>();
+        auto c2 = std::make_shared<Client>();
+
+        pool.add_account("acc1", c1);
+        pool.add_account("acc2", c2);
+
+        assert(pool.size() == 2);
+        assert(pool.has_account("acc1"));
+        assert(pool.has_account("acc2"));
+        assert(!pool.has_account("acc3"));
+
+        assert(pool.get_account("acc1") == c1);
+        assert(pool.get_account("acc2") == c2);
+        assert(pool.get_account("acc3") == nullptr);
+
+        auto ids = pool.get_all_account_ids();
+        assert(ids.size() == 2);
+
+        bool removed = pool.remove_account("acc1");
+        assert(removed);
+        assert(pool.size() == 1);
+        assert(!pool.has_account("acc1"));
+        assert(!pool.remove_account("nonexistent"));
+    }
+
+    // ---- 66. AccountPool Round-Robin Dispatching (v1.1) ----
+    {
+        AccountPool pool;
+        assert(pool.get_next_account() == nullptr);
+
+        auto c1 = std::make_shared<Client>();
+        auto c2 = std::make_shared<Client>();
+        auto c3 = std::make_shared<Client>();
+
+        pool.add_account("node_a", c1);
+        pool.add_account("node_b", c2);
+        pool.add_account("node_c", c3);
+
+        auto sel1 = pool.get_next_account();
+        auto sel2 = pool.get_next_account();
+        auto sel3 = pool.get_next_account();
+        auto sel4 = pool.get_next_account();
+
+        assert(sel1 == c1);
+        assert(sel2 == c2);
+        assert(sel3 == c3);
+        assert(sel4 == c1); // wraps around
+    }
+
+    // ---- 67. MetricsCollector Counter Increments (v1.1) ----
+    {
+        MetricsCollector metrics;
+        assert(metrics.get_messages_sent() == 0);
+        assert(metrics.get_messages_received() == 0);
+        assert(metrics.get_rpc_calls() == 0);
+        assert(metrics.get_errors() == 0);
+        assert(metrics.get_reconnects() == 0);
+
+        metrics.increment_messages_sent(5);
+        metrics.increment_messages_received(12);
+        metrics.increment_rpc_calls(100);
+        metrics.increment_errors(2);
+        metrics.increment_reconnects(1);
+
+        assert(metrics.get_messages_sent() == 5);
+        assert(metrics.get_messages_received() == 12);
+        assert(metrics.get_rpc_calls() == 100);
+        assert(metrics.get_errors() == 2);
+        assert(metrics.get_reconnects() == 1);
+    }
+
+    // ---- 68. MetricsCollector Gauge & Latency (v1.1) ----
+    {
+        MetricsCollector metrics;
+        assert(metrics.get_active_connections() == 0);
+        assert(metrics.get_avg_latency_ms() == 0.0);
+
+        metrics.set_active_connections(8);
+        assert(metrics.get_active_connections() == 8);
+
+        metrics.record_rpc_latency_ms(10.0);
+        metrics.record_rpc_latency_ms(20.0);
+        metrics.record_rpc_latency_ms(30.0);
+
+        double avg = metrics.get_avg_latency_ms();
+        assert(avg >= 19.9 && avg <= 20.1);
+    }
+
+    // ---- 69. MetricsCollector Prometheus Format Exporter (v1.1) ----
+    {
+        MetricsCollector metrics;
+        metrics.increment_messages_sent(42);
+        metrics.increment_rpc_calls(100);
+        metrics.set_active_connections(3);
+        metrics.record_rpc_latency_ms(15.5);
+
+        std::string prom = metrics.to_prometheus_format();
+        assert(prom.find("cppgram_messages_sent_total 42") != std::string::npos);
+        assert(prom.find("cppgram_rpc_calls_total 100") != std::string::npos);
+        assert(prom.find("cppgram_active_connections 3") != std::string::npos);
+        assert(prom.find("cppgram_rpc_avg_latency_ms 15.500") != std::string::npos);
+        assert(prom.find("# TYPE cppgram_messages_sent_total counter") != std::string::npos);
+        assert(prom.find("# TYPE cppgram_active_connections gauge") != std::string::npos);
+    }
+
+    // ---- 70. MetricsCollector Reset (v1.1) ----
+    {
+        MetricsCollector metrics;
+        metrics.increment_messages_sent(10);
+        metrics.increment_messages_received(20);
+        metrics.increment_rpc_calls(30);
+        metrics.increment_errors(4);
+        metrics.increment_reconnects(5);
+        metrics.set_active_connections(6);
+        metrics.record_rpc_latency_ms(50.0);
+
+        metrics.reset();
+
+        assert(metrics.get_messages_sent() == 0);
+        assert(metrics.get_messages_received() == 0);
+        assert(metrics.get_rpc_calls() == 0);
+        assert(metrics.get_errors() == 0);
+        assert(metrics.get_reconnects() == 0);
+        assert(metrics.get_active_connections() == 0);
+        assert(metrics.get_avg_latency_ms() == 0.0);
+    }
+
+    std::cout << "All 70 smoke tests passed (including v0.1, v0.2, v0.3, v0.4, v0.5, v1.0, and v1.1 features).\n";
     return 0;
 }

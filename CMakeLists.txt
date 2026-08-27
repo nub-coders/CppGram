@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(CppGram
-    VERSION 1.0.0
+    VERSION 1.1.0
     DESCRIPTION "Modern C++20 Telegram client framework"
     LANGUAGES CXX)
 
@@ -79,7 +79,10 @@ target_sources(cppgram PRIVATE
     src/core/session.cpp
     src/core/cli.cpp
     src/core/tl.cpp
-    src/core/mtproto_client.cpp)
+    src/core/mtproto_client.cpp
+    src/core/obfuscated.cpp
+    src/core/account_pool.cpp
+    src/core/metrics.cpp)
 
 target_link_libraries(cppgram
     PUBLIC  Threads::Threads
@@ -110,3 +113,45 @@ endif()
 if(CPPGRAM_BUILD_BENCHMARKS)
     add_subdirectory(benchmarks)
 endif()
+
+# ---- Install & Package Configuration ---------------------------------------
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+install(TARGETS cppgram
+    EXPORT CppGramTargets
+    ARCHIVE       DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY       DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME       DESTINATION ${CMAKE_INSTALL_BINDIR}
+    INCLUDES      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(DIRECTORY include/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING PATTERN "*.hpp"
+)
+
+install(EXPORT CppGramTargets
+    FILE CppGramTargets.cmake
+    NAMESPACE CppGram::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/CppGram
+)
+
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/CppGramConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CppGramConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/CppGramConfig.cmake"
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/CppGram
+)
+
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/CppGramConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/CppGramConfigVersion.cmake"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/CppGram
+)
+

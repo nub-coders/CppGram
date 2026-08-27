@@ -8,6 +8,29 @@ CppGram brings the developer experience of Pyrogram and Telethon to the C++ ecos
 
 **Features**
 
+*MTProto Obfuscated Transport & Fake-TLS (v1.1)*
+- MTProto Obfuscated2 anti-censorship transport codec (`ObfuscatedCodec`)
+- 64-byte randomized handshake header preventing DPI heuristic fingerprinting
+- Dual-direction AES-256-CTR frame encryption and decryption
+- Fake-TLS 1.3 `ClientHello` frame generator (`FakeTls::create_client_hello`) with SNI domain fronting
+- TLS record header and version validation (`FakeTls::is_valid_tls_record`)
+
+*Multi-Account Session Pool Orchestrator (v1.1)*
+- Multi-account fleet orchestration (`AccountPool`) for user and bot sessions
+- Thread-safe account registration, retrieval, removal, and size tracking
+- Atomic round-robin account selection (`get_next_account`) for distributed workload dispatch
+- Multi-chat broadcast routine (`AccountPool::broadcast`)
+
+*Real-Time Telemetry & Prometheus Exporter (v1.1)*
+- Enterprise metrics collector (`MetricsCollector`) with thread-safe atomic counters
+- Tracking messages sent/received, total RPC invocations, errors, and reconnect events
+- Real-time active socket connection gauge and average RPC latency tracking
+- Standard Prometheus text format exporter (`to_prometheus_format`) for Grafana scraping
+
+*CMake Downstream Packaging & Installation (v1.1)*
+- Modern CMake `install()` export rules and package configuration
+- Downstream integration via `find_package(CppGram REQUIRED)` and `target_link_libraries(app PRIVATE CppGram::cppgram)`
+
 *Authentication*
 - User account login with phone number
 - Bot account login with BotFather token
@@ -402,6 +425,41 @@ client.connect(2, TransportProtocol::Intermediate);
 client.ping();
 ```
 
+*MTProto Obfuscated Transport & Fake-TLS*
+```cpp
+#include <cppgram/obfuscated.hpp>
+
+// Create an obfuscated transport codec over intermediate framing
+auto base_codec = create_transport_codec(TransportProtocol::Intermediate);
+ObfuscatedCodec obf_codec(std::move(base_codec), TransportProtocol::Intermediate);
+
+// Retrieve 64-byte anti-DPI handshake header
+auto header = obf_codec.get_header();
+
+// Generate Fake-TLS ClientHello with SNI domain fronting
+auto client_hello = FakeTls::create_client_hello("cloudflare.com", header);
+```
+
+*Multi-Account Pool & Prometheus Telemetry*
+```cpp
+#include <cppgram/account_pool.hpp>
+#include <cppgram/metrics.hpp>
+
+AccountPool pool;
+pool.add_account("bot_1", std::make_shared<Client>());
+pool.add_account("bot_2", std::make_shared<Client>());
+
+// Round-robin dispatching
+auto worker = pool.get_next_account();
+
+MetricsCollector metrics;
+metrics.increment_messages_sent(100);
+metrics.record_rpc_latency_ms(14.2);
+
+// Export Prometheus exposition format
+std::string report = metrics.to_prometheus_format();
+```
+
 ---
 
 **Project Structure**
@@ -413,6 +471,9 @@ cppgram/
 │   ├── coro.hpp            # C++20 coroutine Task<T> & sync_wait
 │   ├── tl.hpp              # Binary Type Language (TL) Codec (TLWriter, TLReader)
 │   ├── mtproto_client.hpp  # Standalone Native MTProto Network Client
+│   ├── obfuscated.hpp      # MTProto Obfuscated Codec & Fake-TLS Handshake
+│   ├── account_pool.hpp    # Multi-account session pool orchestrator
+│   ├── metrics.hpp         # Real-time telemetry & Prometheus metrics exporter
 │   ├── crypto.hpp          # MTProto 2.0 Crypto (AES-IGE, AES-CTR, KDF, SHA)
 │   ├── network.hpp         # DatacenterManager & TcpConnection socket layer
 │   ├── session.hpp         # Session state, message IDs & MTProto envelope
@@ -450,6 +511,9 @@ cppgram/
 │   └── core/
 │       ├── tl.cpp          # Type Language binary serialization implementation
 │       ├── mtproto_client.cpp # Native MTProto client engine implementation
+│       ├── obfuscated.cpp  # Obfuscated transport codec & Fake-TLS implementation
+│       ├── account_pool.cpp # Multi-account pool management & round-robin
+│       ├── metrics.cpp     # Telemetry counters & Prometheus format export
 │       ├── crypto.cpp      # MTProto 2.0 AES-IGE, AES-CTR & KDF implementation
 │       ├── network.cpp     # Datacenter registry & TCP socket connection
 │       ├── session.cpp     # Monotonic msg_id, envelope packing & unpacking
@@ -460,7 +524,7 @@ cppgram/
 │       ├── plugin.cpp      # PluginManager lifecycle implementation
 │       └── transport.cpp   # MTProto transport codecs (Abridged, Intermediate, Full)
 ├── tests/
-│   └── phase1_smoke.cpp    # Test suite covering v0.1, v0.2, v0.3, v0.4, v0.5, and v1.0 (60 tests)
+│   └── phase1_smoke.cpp    # Test suite covering v0.1..v1.1 (70 tests)
 ├── benchmarks/
 │   ├── CMakeLists.txt      # Benchmarks build definition
 │   └── engine_bench.cpp    # Performance benchmarks (AES-IGE, framing codecs, TL)
@@ -471,6 +535,7 @@ cppgram/
 │   ├── v04_features_demo.cpp # Showcase of v0.4 features (WebApps, Business, Calls, Transport)
 │   ├── v05_features_demo.cpp # Showcase of v0.5 features (Crypto, Network, Session, CLI)
 │   ├── v10_features_demo.cpp # Showcase of v1.0 features (TL Codecs, Native MTProto Client)
+│   ├── v11_features_demo.cpp # Showcase of v1.1 features (Obfuscation, Fake-TLS, Pool, Metrics)
 │   └── interactive_cli.cpp # Interactive REPL shell application
 └── CMakeLists.txt
 ```
@@ -525,6 +590,14 @@ cppgram/
 - [x] Engine performance benchmark suite (`engine_bench`)
 - [x] Comprehensive 60-test smoke verification suite (100% passing)
 - [x] Production-ready stable release candidate
+
+*Version 1.1 (Enterprise & Cloud Native - Completed)*
+- [x] MTProto Obfuscated2 anti-censorship transport codec (`ObfuscatedCodec`)
+- [x] Fake-TLS 1.3 handshake frame generator & SNI domain fronting (`FakeTls`)
+- [x] Multi-account session pool orchestrator (`AccountPool`)
+- [x] Real-time Prometheus metrics exporter (`MetricsCollector`)
+- [x] Modern CMake packaging & installation targets (`find_package(CppGram)`)
+- [x] Comprehensive 70-test smoke verification suite (100% passing)
 
 ---
 
