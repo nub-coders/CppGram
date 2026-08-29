@@ -8,6 +8,14 @@ CppGram brings the developer experience of Pyrogram and Telethon to the C++ ecos
 
 **Features**
 
+*Telegram MTProto API Layer 225 Support*
+- Fully aligned with Telegram MTProto Layer 225 specification (`TELEGRAM_API_LAYER = 225`)
+- `invokeWithLayer#da9b0d0d` envelope framing and parsing (`TLWriter::write_invoke_with_layer`, `TLReader::read_invoke_with_layer`)
+- Layer 225 `initConnection#c1cd5ea9` client initialization framing
+- Custom AI Compose Tone domain entities (`AiComposeTone`) and management constructor constants
+- Bot Guest Chat queries and responses (`BotGuestChatResult`, `TL_MESSAGES_SET_BOT_GUEST_CHAT_RESULT`)
+- Poll analytics and statistics domain entities (`PollStats`, `TL_STATS_GET_POLL_STATS`)
+
 *MTProto Obfuscated Transport & Fake-TLS (v1.1)*
 - MTProto Obfuscated2 anti-censorship transport codec (`ObfuscatedCodec`)
 - 64-byte randomized handshake header preventing DPI heuristic fingerprinting
@@ -460,6 +468,24 @@ metrics.record_rpc_latency_ms(14.2);
 std::string report = metrics.to_prometheus_format();
 ```
 
+*Telegram MTProto Layer 225 invokeWithLayer Negotiation*
+```cpp
+#include <cppgram/tl.hpp>
+#include <cppgram/mtproto_client.hpp>
+
+// Package RPC query into an invokeWithLayer#da9b0d0d envelope
+std::vector<uint8_t> rpc_query = {'g', 'e', 't', 'P', 'o', 'l', 'l', 'S', 't', 'a', 't', 's'};
+auto envelope = MtprotoClient::build_invoke_with_layer_query(TELEGRAM_API_LAYER, rpc_query);
+
+// Parse layer envelope on receiver side
+TLReader reader(envelope);
+int32_t negotiated_layer = 0;
+std::vector<uint8_t> payload;
+if (reader.read_invoke_with_layer(negotiated_layer, payload)) {
+    // Verified Layer 225 payload
+}
+```
+
 ---
 
 **Project Structure**
@@ -524,7 +550,7 @@ cppgram/
 │       ├── plugin.cpp      # PluginManager lifecycle implementation
 │       └── transport.cpp   # MTProto transport codecs (Abridged, Intermediate, Full)
 ├── tests/
-│   └── phase1_smoke.cpp    # Test suite covering v0.1..v1.1 (70 tests)
+│   └── phase1_smoke.cpp    # Test suite covering v0.1..v1.1 & Layer 225 (80 tests)
 ├── benchmarks/
 │   ├── CMakeLists.txt      # Benchmarks build definition
 │   └── engine_bench.cpp    # Performance benchmarks (AES-IGE, framing codecs, TL)
@@ -536,6 +562,7 @@ cppgram/
 │   ├── v05_features_demo.cpp # Showcase of v0.5 features (Crypto, Network, Session, CLI)
 │   ├── v10_features_demo.cpp # Showcase of v1.0 features (TL Codecs, Native MTProto Client)
 │   ├── v11_features_demo.cpp # Showcase of v1.1 features (Obfuscation, Fake-TLS, Pool, Metrics)
+│   ├── layer225_demo.cpp   # Showcase of Telegram API Layer 225 features
 │   └── interactive_cli.cpp # Interactive REPL shell application
 └── CMakeLists.txt
 ```
@@ -598,6 +625,14 @@ cppgram/
 - [x] Real-time Prometheus metrics exporter (`MetricsCollector`)
 - [x] Modern CMake packaging & installation targets (`find_package(CppGram)`)
 - [x] Comprehensive 70-test smoke verification suite (100% passing)
+
+*Telegram Layer 225 Upgrade (Completed)*
+- [x] Protocol schema alignment to Telegram MTProto Layer 225 (`TELEGRAM_API_LAYER = 225`)
+- [x] `invokeWithLayer#da9b0d0d` query encapsulation & deserialization
+- [x] `initConnection#c1cd5ea9` Layer 225 bootstrap framing
+- [x] AI Compose Tones domain models & constructor constants
+- [x] Bot Guest Mode result routing & Poll statistics
+- [x] 80-test smoke test suite (100% passing)
 
 ---
 

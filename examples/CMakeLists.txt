@@ -26,5 +26,9 @@ target_link_libraries(v10_features_demo PRIVATE CppGram::cppgram)
 add_executable(v11_features_demo v11_features_demo.cpp)
 target_link_libraries(v11_features_demo PRIVATE CppGram::cppgram)
 
+add_executable(layer225_demo layer225_demo.cpp)
+target_link_libraries(layer225_demo PRIVATE CppGram::cppgram)
+
+
 
 

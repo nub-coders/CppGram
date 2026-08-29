@@ -203,4 +203,48 @@ uint32_t TLReader::read_vector_header() {
     return read_uint32();
 }
 
+bool TLReader::read_invoke_with_layer(int32_t& out_layer, std::vector<uint8_t>& out_query) {
+    if (!has_remaining(8)) {
+        return false;
+    }
+    size_t save_offset = offset_;
+    uint32_t ctor = read_uint32();
+    if (ctor != TL_INVOKE_WITH_LAYER) {
+        offset_ = save_offset;
+        return false;
+    }
+    out_layer = read_int32();
+    size_t rem = remaining_bytes();
+    out_query.assign(data_.data() + offset_, data_.data() + offset_ + rem);
+    offset_ += rem;
+    return true;
+}
+
+void TLWriter::write_invoke_with_layer(int32_t layer, const std::vector<uint8_t>& query) {
+    write_uint32(TL_INVOKE_WITH_LAYER);
+    write_int32(layer);
+    buffer_.insert(buffer_.end(), query.begin(), query.end());
+}
+
+void TLWriter::write_init_connection(
+    int32_t api_id,
+    const std::string& device_model,
+    const std::string& system_version,
+    const std::string& app_version,
+    const std::string& system_lang_code,
+    const std::string& lang_pack,
+    const std::string& lang_code,
+    const std::vector<uint8_t>& query) {
+    write_uint32(TL_INIT_CONNECTION);
+    write_uint32(0); // flags:#
+    write_int32(api_id);
+    write_string(device_model);
+    write_string(system_version);
+    write_string(app_version);
+    write_string(system_lang_code);
+    write_string(lang_pack);
+    write_string(lang_code);
+    buffer_.insert(buffer_.end(), query.begin(), query.end());
+}
+
 } // namespace cppgram

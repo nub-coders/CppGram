@@ -115,4 +115,15 @@ bool MtprotoClient::ping(int64_t ping_id) {
     return send_encrypted(query, false);
 }
 
+std::vector<uint8_t> MtprotoClient::build_invoke_with_layer_query(int32_t layer, const std::vector<uint8_t>& rpc_query) {
+    TLWriter writer;
+    writer.write_invoke_with_layer(layer, rpc_query);
+    return writer.take_data();
+}
+
+bool MtprotoClient::send_with_layer(int32_t layer, const std::vector<uint8_t>& rpc_query, bool is_content_related) {
+    auto wrapped = build_invoke_with_layer_query(layer, rpc_query);
+    return send_encrypted(wrapped, is_content_related);
+}
+
 } // namespace cppgram

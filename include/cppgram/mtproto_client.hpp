@@ -40,11 +40,15 @@ public:
 
     bool send_unencrypted(const std::vector<uint8_t>& payload);
     bool send_encrypted(const std::vector<uint8_t>& payload, bool is_content_related = true);
+    bool send_with_layer(int32_t layer, const std::vector<uint8_t>& rpc_query, bool is_content_related = true);
     std::vector<uint8_t> receive_response(int timeout_ms = 3000);
+
+    [[nodiscard]] int32_t get_layer() const noexcept { return config_.layer; }
 
     bool ping(int64_t ping_id = 0);
     static std::vector<uint8_t> build_ping_query(int64_t ping_id);
     static bool parse_pong_response(std::span<const uint8_t> data, int64_t& out_ping_id);
+    static std::vector<uint8_t> build_invoke_with_layer_query(int32_t layer, const std::vector<uint8_t>& rpc_query);
 
 private:
     ClientConfig config_;

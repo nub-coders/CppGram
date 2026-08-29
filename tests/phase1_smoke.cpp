@@ -1688,6 +1688,158 @@ int main() {
         assert(metrics.get_avg_latency_ms() == 0.0);
     }
 
-    std::cout << "All 70 smoke tests passed (including v0.1, v0.2, v0.3, v0.4, v0.5, v1.0, and v1.1 features).\n";
+    // ---- 71. Layer 225 TELEGRAM_API_LAYER Constant (v1.1 / Layer 225) ----
+    {
+        assert(TELEGRAM_API_LAYER == 225);
+    }
+
+    // ---- 72. Layer 225 Constructor Identifiers (Layer 225) ----
+    {
+        assert(TL_INVOKE_WITH_LAYER == 0xda9b0d0d);
+        assert(TL_INIT_CONNECTION == 0xc1cd5ea9);
+        assert(TL_MESSAGES_SET_BOT_GUEST_CHAT_RESULT == 0x052b08db);
+        assert(TL_MESSAGES_DELETE_PARTICIPANT_REACTIONS == 0xa0b80cf8);
+        assert(TL_MESSAGES_DELETE_PARTICIPANT_REACTION == 0xe3b7f82c);
+        assert(TL_STATS_GET_POLL_STATS == 0xc27dfa68);
+        assert(TL_AICOMPOSE_CREATE_TONE == 0x4aa83913);
+        assert(TL_AICOMPOSE_UPDATE_TONE == 0x903bcf59);
+        assert(TL_AICOMPOSE_SAVE_TONE == 0x1782cbb1);
+        assert(TL_AICOMPOSE_DELETE_TONE == 0xdd39316a);
+        assert(TL_AICOMPOSE_GET_TONE == 0xb2e8ba03);
+        assert(TL_AICOMPOSE_GET_TONES == 0xabd59201);
+        assert(TL_AICOMPOSE_GET_TONE_EXAMPLE == 0xd1b4ab14);
+        assert(TL_AICOMPOSE_TONES == 0x6c9d0efe);
+        assert(TL_AICOMPOSE_TONES_NOT_MODIFIED == 0xc1f46103);
+    }
+
+    // ---- 73. TLWriter invokeWithLayer Serialization (Layer 225) ----
+    {
+        TLWriter w;
+        std::vector<uint8_t> mock_rpc = {'p', 'i', 'n', 'g'};
+        w.write_invoke_with_layer(TELEGRAM_API_LAYER, mock_rpc);
+
+        auto data = w.take_data();
+        assert(data.size() == 8 + mock_rpc.size());
+
+        TLReader r(data);
+        assert(r.read_uint32() == TL_INVOKE_WITH_LAYER);
+        assert(r.read_int32() == 225);
+        assert(r.remaining_bytes() == mock_rpc.size());
+    }
+
+    // ---- 74. TLReader invokeWithLayer Parsing (Layer 225) ----
+    {
+        TLWriter w;
+        std::vector<uint8_t> inner = {0x01, 0x02, 0x03, 0x04, 0x05};
+        w.write_invoke_with_layer(225, inner);
+        auto buf = w.take_data();
+
+        TLReader r(buf);
+        int32_t parsed_layer = 0;
+        std::vector<uint8_t> parsed_query;
+        bool ok = r.read_invoke_with_layer(parsed_layer, parsed_query);
+        assert(ok);
+        assert(parsed_layer == 225);
+        assert(parsed_query == inner);
+    }
+
+    // ---- 75. MtprotoClient build_invoke_with_layer_query (Layer 225) ----
+    {
+        std::vector<uint8_t> query = {'h', 'e', 'l', 'l', 'o'};
+        auto pkt = MtprotoClient::build_invoke_with_layer_query(225, query);
+        assert(pkt.size() == 8 + query.size());
+
+        TLReader r(pkt);
+        int32_t layer = 0;
+        std::vector<uint8_t> payload;
+        assert(r.read_invoke_with_layer(layer, payload));
+        assert(layer == 225);
+        assert(payload == query);
+    }
+
+    // ---- 76. TLWriter write_init_connection (Layer 225) ----
+    {
+        TLWriter w;
+        std::vector<uint8_t> q = {0xaa, 0xbb};
+        w.write_init_connection(
+            123456,
+            "Ubuntu 24.04",
+            "Linux",
+            "1.1.0",
+            "en",
+            "tdesktop",
+            "en",
+            q
+        );
+        auto data = w.take_data();
+        assert(!data.empty());
+
+        TLReader r(data);
+        assert(r.read_uint32() == TL_INIT_CONNECTION);
+        assert(r.read_uint32() == 0); // flags
+        assert(r.read_int32() == 123456); // api_id
+        assert(r.read_string() == "Ubuntu 24.04");
+        assert(r.read_string() == "Linux");
+        assert(r.read_string() == "1.1.0");
+        assert(r.read_string() == "en");
+        assert(r.read_string() == "tdesktop");
+        assert(r.read_string() == "en");
+    }
+
+    // ---- 77. AiComposeTone Domain Model (Layer 225) ----
+    {
+        AiComposeTone tone;
+        tone.id = 12345;
+        tone.title = "Executive Brief";
+        tone.prompt = "Summarize in 3 bullet points with direct tone.";
+        tone.emoji_id = 9988;
+        tone.display_author = true;
+        tone.is_default = false;
+        tone.slug = "exec-brief";
+
+        assert(tone.id == 12345);
+        assert(tone.title == "Executive Brief");
+        assert(tone.prompt == "Summarize in 3 bullet points with direct tone.");
+        assert(tone.emoji_id == 9988);
+        assert(tone.display_author == true);
+        assert(!tone.is_default);
+        assert(tone.slug == "exec-brief");
+    }
+
+    // ---- 78. BotGuestChatResult Domain Model (Layer 225) ----
+    {
+        BotGuestChatResult res;
+        res.query_id = 77665544332211LL;
+        res.text = "<b>Guest bot reply</b>";
+        res.parse_mode = ParseMode::HTML;
+
+        assert(res.query_id == 77665544332211LL);
+        assert(res.text == "<b>Guest bot reply</b>");
+        assert(res.parse_mode == ParseMode::HTML);
+    }
+
+    // ---- 79. PollStats Domain Model (Layer 225) ----
+    {
+        PollStats stats;
+        stats.total_voters = 350;
+        stats.option_voters = {150, 120, 80};
+
+        assert(stats.total_voters == 350);
+        assert(stats.option_voters.size() == 3);
+        assert(stats.option_voters[0] == 150);
+        assert(stats.option_voters[1] == 120);
+        assert(stats.option_voters[2] == 80);
+    }
+
+    // ---- 80. ClientConfig Layer 225 Alignment & MtprotoClient Layer Access (Layer 225) ----
+    {
+        ClientConfig cfg;
+        assert(cfg.layer == 225);
+
+        MtprotoClient client(cfg);
+        assert(client.get_layer() == 225);
+    }
+
+    std::cout << "All 80 smoke tests passed (including v0.1..v1.1 and Layer 225 features).\n";
     return 0;
 }

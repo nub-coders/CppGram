@@ -132,6 +132,7 @@ struct ClientConfig {
     BackendType  backend{BackendType::TDLib};
     int          primary_dc{2};
     bool         test_mode{false};
+    std::int32_t layer{225};
 };
 
 /**
@@ -307,6 +308,40 @@ struct InputFile {
     std::string path;
 
     static InputFile local(const std::string& p) { return {p}; }
+};
+
+// ============================================================================
+// Telegram API Layer 225 Domain Entities
+// ============================================================================
+
+/**
+ * @brief Custom AI composer tone descriptor (Layer 225).
+ */
+struct AiComposeTone {
+    int64_t     id{0};
+    std::string title;
+    std::string prompt;
+    int64_t     emoji_id{0};
+    bool        display_author{false};
+    bool        is_default{false};
+    std::string slug;
+};
+
+/**
+ * @brief Bot Guest Chat response descriptor (Layer 225).
+ */
+struct BotGuestChatResult {
+    int64_t     query_id{0};
+    std::string text;
+    ParseMode   parse_mode{ParseMode::None};
+};
+
+/**
+ * @brief Poll statistics metadata (Layer 225).
+ */
+struct PollStats {
+    int32_t total_voters{0};
+    std::vector<int32_t> option_voters;
 };
 
 } // namespace cppgram
