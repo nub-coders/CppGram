@@ -7,6 +7,7 @@
 #include "cppgram/media.hpp"
 #include "cppgram/keyboard.hpp"
 #include "cppgram/web_app.hpp"
+#include "cppgram/rich_message.hpp"
 
 namespace cppgram {
 class IBackend;
@@ -50,6 +51,9 @@ public:
     std::optional<Dice>        dice;
     std::optional<WebAppData>  web_app_data;
 
+    // Telegram Bot API 10.3 Rich Message
+    std::optional<RichMessage> rich_message;
+
     // Reply markup
     std::optional<InlineKeyboard> reply_markup;
 
@@ -58,6 +62,7 @@ public:
     Message reply(const std::string& body, ParseMode parse_mode);
     Message reply(const std::string& body, const ReplyMarkup& markup);
     Message reply(const std::string& body, const ReplyMarkup& markup, ParseMode parse_mode);
+    Message reply(const InputRichMessage& rich_msg);
     Message reply_in_thread(const std::string& body);
     Message reply_in_thread(const std::string& body, ParseMode parse_mode);
     void    edit(const std::string& body);

@@ -82,7 +82,8 @@ target_sources(cppgram PRIVATE
     src/core/mtproto_client.cpp
     src/core/obfuscated.cpp
     src/core/account_pool.cpp
-    src/core/metrics.cpp)
+    src/core/metrics.cpp
+    src/core/rich_message.cpp)
 
 target_link_libraries(cppgram
     PUBLIC  Threads::Threads

@@ -6,6 +6,7 @@
 #include <functional>
 #include "cppgram/types.hpp"
 #include "cppgram/keyboard.hpp"
+#include "cppgram/rich_message.hpp"
 
 namespace cppgram {
 class Message;
@@ -56,6 +57,11 @@ public:
                                          std::optional<MessageId> reply_to,
                                          const std::optional<ReplyMarkup>& markup,
                                          const SendMessageOptions& options) = 0;
+    virtual Message sendRichMessage(ChatId chat_id, const InputRichMessage& rich_msg,
+                                    const SendRichMessageOptions& options) = 0;
+    virtual bool sendRichMessageDraft(ChatId chat_id, int64_t draft_id,
+                                      const InputRichMessage& rich_msg,
+                                      bool can_stop, bool keep_on_stop) = 0;
     virtual void    editMessage(ChatId, MessageId, const std::string& text) = 0;
     virtual void    editMessage(ChatId, MessageId, const std::string& text, ParseMode parse_mode) = 0;
     virtual void    editMessageCaption(ChatId, MessageId, const std::string& caption) = 0;

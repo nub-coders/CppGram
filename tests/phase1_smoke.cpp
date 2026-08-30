@@ -25,6 +25,7 @@
 #include "cppgram/obfuscated.hpp"
 #include "cppgram/account_pool.hpp"
 #include "cppgram/metrics.hpp"
+#include "cppgram/rich_message.hpp"
 #include <cassert>
 #include <iostream>
 #include <cstdio>
@@ -1840,6 +1841,195 @@ int main() {
         assert(client.get_layer() == 225);
     }
 
-    std::cout << "All 80 smoke tests passed (including v0.1..v1.1 and Layer 225 features).\n";
+    // ---- 81. InputRichMessage Factory & Media Links (Bot API 10.3) ----
+    {
+        auto msg_html = InputRichMessage::from_html("<b>Header</b><details><summary>Info</summary>Details</details>");
+        assert(msg_html.html.has_value());
+        assert(msg_html.html.value().find("<details>") != std::string::npos);
+        assert(!msg_html.is_rtl);
+
+        auto msg_md = InputRichMessage::from_markdown("**Title**\n||hidden spoiler||", true);
+        assert(msg_md.markdown.has_value());
+        assert(msg_md.is_rtl == true);
+    }
+
+    // ---- 82. RichBlockTable & is_compact (Bot API 10.3) ----
+    {
+        RichBlockTable tbl;
+        tbl.is_bordered = true;
+        tbl.is_striped = true;
+        tbl.is_compact = true; // Bot API 10.3
+        tbl.caption = "Quarterly Performance";
+
+        RichBlockTableCell h1{"Metric", true, 1, 1, "left", "middle"};
+        RichBlockTableCell h2{"Value", true, 1, 1, "right", "middle"};
+        RichBlockTableCell r1{"Latency", false, 1, 1, "left", "top"};
+        RichBlockTableCell r2{"12ms", false, 1, 1, "right", "top"};
+
+        tbl.cells = {{h1, h2}, {r1, r2}};
+
+        assert(tbl.is_compact == true);
+        assert(tbl.is_bordered == true);
+        assert(tbl.is_striped == true);
+        assert(tbl.cells.size() == 2);
+        assert(tbl.cells[0][0].is_header == true);
+        assert(tbl.cells[1][1].text == "12ms");
+    }
+
+    // ---- 83. RichBlockExpandableBlockQuotation (Bot API 10.3) ----
+    {
+        RichBlockExpandableBlockQuotation quote;
+        quote.text = "The secret to building reliable distributed systems is minimalism.";
+        quote.credit = "Distributed Systems Handbook";
+
+        RichBlock block(RichBlockType::ExpandableBlockQuotation, quote);
+        assert(block.type == RichBlockType::ExpandableBlockQuotation);
+
+        auto* payload = std::get_if<RichBlockExpandableBlockQuotation>(&block.payload);
+        assert(payload != nullptr);
+        assert(payload->text.find("reliable distributed") != std::string::npos);
+        assert(payload->credit.value() == "Distributed Systems Handbook");
+    }
+
+    // ---- 84. RichBlockButtons & RichMessageButton (Bot API 10.3) ----
+    {
+        auto b_url = RichMessageButton::make_url("Docs", "https://core.telegram.org/bots/api#richmessage", "primary");
+        auto b_cb = RichMessageButton::make_callback("Acknowledge", "ack_payload", "success");
+        auto b_copy = RichMessageButton::make_copy("Copy Token", "secret_token_123", "danger");
+
+        RichMessageButton b_disabled;
+        b_disabled.text = "Unavailable";
+        b_disabled.style = "link";
+        b_disabled.disabled = true; // Bot API 10.3
+
+        assert(!b_url.disabled);
+        assert(b_disabled.disabled == true);
+        assert(b_disabled.style == "link");
+        assert(b_copy.copy_text.value() == "secret_token_123");
+
+        RichBlockButtons btns_block;
+        btns_block.buttons = {b_url, b_cb, b_copy, b_disabled};
+        btns_block.align = "center";
+
+        RichBlock block(RichBlockType::Buttons, btns_block);
+        assert(block.type == RichBlockType::Buttons);
+        auto* p = std::get_if<RichBlockButtons>(&block.payload);
+        assert(p != nullptr);
+        assert(p->buttons.size() == 4);
+        assert(p->align == "center");
+    }
+
+    // ---- 85. RichBlockDocument & tg://document?id= Link Support (Bot API 10.3) ----
+    {
+        RichBlockDocument doc;
+        doc.document = "tg://document?id=doc_file_98765";
+        doc.caption = "API 10.3 Specification Document";
+
+        RichBlock block(RichBlockType::Document, doc);
+        assert(block.type == RichBlockType::Document);
+
+        auto* p = std::get_if<RichBlockDocument>(&block.payload);
+        assert(p != nullptr);
+        assert(p->document == "tg://document?id=doc_file_98765");
+        assert(p->caption.value() == "API 10.3 Specification Document");
+    }
+
+    // ---- 86. RichMessageBuilder Fluent Construction (Bot API 10.3) ----
+    {
+        RichBlockTable sample_tbl;
+        sample_tbl.is_compact = true;
+        sample_tbl.cells = {{RichBlockTableCell{"Col1"}, RichBlockTableCell{"Col2"}}};
+
+        auto rich_msg = RichMessageBuilder()
+            .heading("System Status Report")
+            .paragraph("Current cluster metrics and telemetry data:")
+            .table(sample_tbl)
+            .expandable_quote("Latency is within acceptable bounds across all regions.", "SRE Team")
+            .buttons({RichMessageButton::make_url("Dashboard", "https://example.com")}, "left")
+            .document("tg://document?id=report_oct_2026.pdf", "Full Report")
+            .divider()
+            .set_rtl(false)
+            .set_skip_entity_detection(true)
+            .build();
+
+        assert(rich_msg.blocks.size() == 7);
+        assert(rich_msg.skip_entity_detection == true);
+        assert(rich_msg.blocks[0].type == RichBlockType::SectionHeading);
+        assert(rich_msg.blocks[1].type == RichBlockType::Paragraph);
+        assert(rich_msg.blocks[2].type == RichBlockType::Table);
+        assert(rich_msg.blocks[3].type == RichBlockType::ExpandableBlockQuotation);
+        assert(rich_msg.blocks[4].type == RichBlockType::Buttons);
+        assert(rich_msg.blocks[5].type == RichBlockType::Document);
+        assert(rich_msg.blocks[6].type == RichBlockType::Divider);
+    }
+
+    // ---- 87. Rich Message Draft Streaming & Thinking Blocks (Bot API 10.3) ----
+    {
+        auto draft = RichMessageBuilder()
+            .thinking("Analyzing user request and preparing structured response...")
+            .paragraph("Here is the preliminary summary:")
+            .build();
+
+        assert(draft.blocks.size() == 2);
+        assert(draft.blocks[0].type == RichBlockType::Thinking);
+        auto* p = std::get_if<RichBlockThinking>(&draft.blocks[0].payload);
+        assert(p != nullptr);
+        assert(p->text.find("Analyzing user request") != std::string::npos);
+    }
+
+    // ---- 88. Message::rich_message Field Storage (Bot API 10.3) ----
+    {
+        Message msg;
+        assert(!msg.rich_message.has_value());
+
+        RichMessage rm;
+        rm.blocks.emplace_back(RichBlockType::Paragraph, RichBlockParagraph{"Structured rich payload"});
+        rm.is_rtl = false;
+        msg.rich_message = rm;
+
+        assert(msg.rich_message.has_value());
+        assert(msg.rich_message->blocks.size() == 1);
+        assert(msg.rich_message->blocks[0].type == RichBlockType::Paragraph);
+    }
+
+    // ---- 89. SendRichMessageOptions & Ephemeral Parameters (Bot API 10.3) ----
+    {
+        SendRichMessageOptions opts;
+        opts.ephemeral_receiver_user_id = 12345678LL;
+        opts.replace_callback_query_message = true;
+        opts.message_thread_id = 42;
+        opts.protect_content = true;
+
+        assert(opts.ephemeral_receiver_user_id.value() == 12345678LL);
+        assert(opts.replace_callback_query_message == true);
+        assert(opts.message_thread_id.value() == 42);
+        assert(opts.protect_content == true);
+
+        InputRichMessageMedia media;
+        media.id = "chart_1";
+        media.media = "tg://photo?id=p12345";
+        assert(media.id == "chart_1");
+        assert(media.media == "tg://photo?id=p12345");
+    }
+
+    // ---- 90. RichText Granular Spans & Message::reply(InputRichMessage) (Bot API 10.3) ----
+    {
+        RichText rt;
+        rt.text = "Mathematical formula: x^2 + y^2 = z^2";
+        rt.spans.push_back(RichTextSpan{RichTextStyle::MathematicalExpression, "x^2 + y^2 = z^2", "latex"});
+        rt.spans.push_back(RichTextSpan{RichTextStyle::Subscript, "2", ""});
+        rt.spans.push_back(RichTextSpan{RichTextStyle::Button, "Details", "button_1"}); // Bot API 10.3
+
+        assert(rt.spans.size() == 3);
+        assert(rt.spans[2].style == RichTextStyle::Button);
+
+        Message msg;
+        msg.id = 1001;
+        msg.chat_id = -10099887766LL;
+        auto reply_result = msg.reply(InputRichMessage::from_markdown("*Replying via Bot API 10.3*"));
+        assert(reply_result.id == 0); // No active client connected in mock mode
+    }
+
+    std::cout << "All 90 smoke tests passed (including v0.1..v1.1, Layer 225, and Bot API 10.3 Rich Messages).\n";
     return 0;
 }

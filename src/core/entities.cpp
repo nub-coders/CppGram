@@ -36,6 +36,16 @@ Message Message::reply(const std::string& body, const ReplyMarkup& markup, Parse
     return {};
 }
 
+Message Message::reply(const InputRichMessage& rich_msg) {
+    if (auto c = _client.lock()) {
+        SendRichMessageOptions opts;
+        opts.reply_to = id;
+        return c->sendRichMessage(chat_id, rich_msg, opts);
+    }
+    CPPGRAM_WARN("entity", "Message::reply on expired client");
+    return {};
+}
+
 Message Message::reply_in_thread(const std::string& body) {
     if (auto c = _client.lock()) {
         SendMessageOptions opts;

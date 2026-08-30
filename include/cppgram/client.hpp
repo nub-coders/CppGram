@@ -129,6 +129,11 @@ public:
                                  std::optional<MessageId> reply_to = std::nullopt,
                                  const std::optional<ReplyMarkup>& markup = std::nullopt,
                                  const SendMessageOptions& options = {});
+    Message sendRichMessage(ChatId chat_id, const InputRichMessage& rich_msg,
+                            const SendRichMessageOptions& options = {});
+    bool    sendRichMessageDraft(ChatId chat_id, int64_t draft_id,
+                                 const InputRichMessage& rich_msg,
+                                 bool can_stop = false, bool keep_on_stop = false);
     void    editMessage(ChatId, MessageId, const std::string& text);
     void    editMessage(ChatId, MessageId, const std::string& text, ParseMode parse_mode);
     void    editMessageCaption(ChatId, MessageId, const std::string& caption);
@@ -300,6 +305,11 @@ public:
                                                 ParseMode parse_mode,
                                                 const SendMessageOptions& options = {},
                                                 std::optional<MessageId> reply_to = std::nullopt);
+    Task<Message>              asyncSendRichMessage(ChatId chat_id, const InputRichMessage& rich_msg,
+                                                    const SendRichMessageOptions& options = {});
+    Task<bool>                 asyncSendRichMessageDraft(ChatId chat_id, int64_t draft_id,
+                                                         const InputRichMessage& rich_msg,
+                                                         bool can_stop = false, bool keep_on_stop = false);
     Task<User>                 asyncGetMe();
     Task<User>                 asyncGetUser(UserId id);
     Task<Chat>                 asyncGetChat(ChatId id);

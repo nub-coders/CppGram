@@ -5,6 +5,7 @@
 #include "cppgram/handlers.hpp"
 #include "cppgram/media.hpp"
 #include "cppgram/keyboard.hpp"
+#include "cppgram/rich_message.hpp"
 
 #include "tdlib_adapter.hpp"
 #include "td_conversions.hpp"
@@ -707,6 +708,129 @@ public:
                             std::move(rm), "sendFormattedMessage",
                             detail::convert_send_options(options),
                             options.message_thread_id.value_or(0));
+    }
+
+    Message sendRichMessage(ChatId chat_id, const InputRichMessage& rich_msg,
+                            const SendRichMessageOptions& options) override {
+        auto content = td_api::make_object<td_api::inputMessageText>();
+        if (rich_msg.html) {
+            content->text_ = detail::parse_text(*rich_msg.html, ParseMode::HTML);
+        } else if (rich_msg.markdown) {
+            content->text_ = detail::parse_text(*rich_msg.markdown, ParseMode::MarkdownV2);
+        } else {
+            std::string rendered;
+            for (const auto& block : rich_msg.blocks) {
+                switch (block.type) {
+                    case RichBlockType::SectionHeading:
+                        if (auto* p = std::get_if<RichBlockSectionHeading>(&block.payload)) {
+                            rendered += "# " + p->text + "\n\n";
+                        }
+                        break;
+                    case RichBlockType::Paragraph:
+                        if (auto* p = std::get_if<RichBlockParagraph>(&block.payload)) {
+                            rendered += p->text + "\n\n";
+                        }
+                        break;
+                    case RichBlockType::Preformatted:
+                        if (auto* p = std::get_if<RichBlockPreformatted>(&block.payload)) {
+                            rendered += "```" + p->language + "\n" + p->text + "\n```\n\n";
+                        }
+                        break;
+                    case RichBlockType::Divider:
+                        rendered += "---\n\n";
+                        break;
+                    case RichBlockType::Table:
+                        if (auto* p = std::get_if<RichBlockTable>(&block.payload)) {
+                            for (const auto& row : p->cells) {
+                                rendered += "|";
+                                for (const auto& cell : row) {
+                                    rendered += " " + cell.text + " |";
+                                }
+                                rendered += "\n";
+                            }
+                            if (p->caption) rendered += "*" + *p->caption + "*\n";
+                            rendered += "\n";
+                        }
+                        break;
+                    case RichBlockType::ExpandableBlockQuotation:
+                        if (auto* p = std::get_if<RichBlockExpandableBlockQuotation>(&block.payload)) {
+                            rendered += "> " + p->text + "\n";
+                            if (p->credit) rendered += "> — " + *p->credit + "\n";
+                            rendered += "\n";
+                        }
+                        break;
+                    case RichBlockType::Buttons:
+                        if (auto* p = std::get_if<RichBlockButtons>(&block.payload)) {
+                            for (const auto& btn : p->buttons) {
+                                rendered += "[" + btn.text + "] ";
+                            }
+                            rendered += "\n\n";
+                        }
+                        break;
+                    case RichBlockType::Document:
+                        if (auto* p = std::get_if<RichBlockDocument>(&block.payload)) {
+                            rendered += "📎 " + p->document + "\n";
+                            if (p->caption) rendered += p->caption.value() + "\n";
+                            rendered += "\n";
+                        }
+                        break;
+                    case RichBlockType::Thinking:
+                        if (auto* p = std::get_if<RichBlockThinking>(&block.payload)) {
+                            rendered += "[Thinking: " + p->text + "]\n\n";
+                        }
+                        break;
+                    default:
+                        break;
+                }
+            }
+            if (!rendered.empty() && rendered.back() == '\n') rendered.pop_back();
+            content->text_ = detail::parse_text(rendered, ParseMode::MarkdownV2);
+        }
+
+        SendMessageOptions send_opts;
+        send_opts.disable_notification = options.disable_notification;
+        send_opts.protect_content = options.protect_content;
+        send_opts.message_thread_id = options.message_thread_id;
+
+        td_api::object_ptr<td_api::ReplyMarkup> rm = options.reply_markup ? detail::build_reply_markup(*options.reply_markup) : nullptr;
+        auto msg = send_content(chat_id, std::move(content), options.reply_to,
+                                std::move(rm), "sendRichMessage",
+                                detail::convert_send_options(send_opts),
+                                options.message_thread_id.value_or(0));
+        msg.rich_message = RichMessage{rich_msg.blocks, rich_msg.is_rtl};
+        return msg;
+    }
+
+    bool sendRichMessageDraft(ChatId chat_id, int64_t draft_id,
+                              const InputRichMessage& rich_msg,
+                              bool can_stop, bool keep_on_stop) override {
+        (void)draft_id;
+        (void)can_stop;
+        (void)keep_on_stop;
+        std::string text_draft;
+        if (rich_msg.html) {
+            text_draft = *rich_msg.html;
+        } else if (rich_msg.markdown) {
+            text_draft = *rich_msg.markdown;
+        } else {
+            for (const auto& b : rich_msg.blocks) {
+                if (auto* t = std::get_if<RichBlockThinking>(&b.payload)) {
+                    text_draft += "[Thinking: " + t->text + "] ";
+                } else if (auto* p = std::get_if<RichBlockParagraph>(&b.payload)) {
+                    text_draft += p->text + " ";
+                }
+            }
+        }
+        auto set_draft = td_api::make_object<td_api::setChatDraftMessage>();
+        set_draft->chat_id_ = chat_id;
+        set_draft->message_thread_id_ = 0;
+        set_draft->draft_message_ = td_api::make_object<td_api::draftMessage>();
+        auto ft = td_api::make_object<td_api::inputMessageText>();
+        ft->text_ = detail::parse_text(text_draft, ParseMode::HTML);
+        set_draft->draft_message_->input_message_text_ = std::move(ft);
+
+        td.send(std::move(set_draft), [](td_api::object_ptr<td_api::Object>) {});
+        return true;
     }
 
     void setDefaultParseMode(ParseMode mode) override {
@@ -1734,6 +1858,17 @@ Message Client::sendFormattedMessage(ChatId c, const FormattedText& t,
     return impl_->sendFormattedMessage(c, t, r, m, o);
 }
 
+Message Client::sendRichMessage(ChatId chat_id, const InputRichMessage& rich_msg,
+                                const SendRichMessageOptions& options) {
+    return impl_->sendRichMessage(chat_id, rich_msg, options);
+}
+
+bool Client::sendRichMessageDraft(ChatId chat_id, int64_t draft_id,
+                                  const InputRichMessage& rich_msg,
+                                  bool can_stop, bool keep_on_stop) {
+    return impl_->sendRichMessageDraft(chat_id, draft_id, rich_msg, can_stop, keep_on_stop);
+}
+
 void Client::editMessage(ChatId c, MessageId m, const std::string& t) {
     impl_->editMessage(c, m, t);
 }
@@ -2108,6 +2243,17 @@ Task<Message> Client::asyncSendMessage(ChatId chat_id, const std::string& text,
                                        const SendMessageOptions& options,
                                        std::optional<MessageId> reply_to) {
     co_return sendMessage(chat_id, text, parse_mode, options, reply_to);
+}
+
+Task<Message> Client::asyncSendRichMessage(ChatId chat_id, const InputRichMessage& rich_msg,
+                                           const SendRichMessageOptions& options) {
+    co_return sendRichMessage(chat_id, rich_msg, options);
+}
+
+Task<bool> Client::asyncSendRichMessageDraft(ChatId chat_id, int64_t draft_id,
+                                            const InputRichMessage& rich_msg,
+                                            bool can_stop, bool keep_on_stop) {
+    co_return sendRichMessageDraft(chat_id, draft_id, rich_msg, can_stop, keep_on_stop);
 }
 
 Task<User> Client::asyncGetMe() {

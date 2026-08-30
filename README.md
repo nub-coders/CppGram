@@ -8,6 +8,17 @@ CppGram brings the developer experience of Pyrogram and Telethon to the C++ ecos
 
 **Features**
 
+*Telegram Bot API 10.3 Rich Messages & Rich Text*
+- Structured multi-block document model (`InputRichMessage`, `RichMessage`, `RichBlock`)
+- Compact table formatting with headers and alignments (`RichBlockTable` with `is_compact`)
+- Expandable block quotations (`RichBlockExpandableBlockQuotation`)
+- Rich message buttons with styles, copy text, and disabled status (`RichBlockButtons`, `RichMessageButton`)
+- Embedded document blocks and general file links (`RichBlockDocument` with `tg://document?id=`)
+- AI message draft streaming with thinking blocks (`RichBlockThinking`, `Client::sendRichMessageDraft`)
+- Granular rich text span entities (`RichText`, `RichTextSpan`, `RichTextStyle`)
+- Fluent document construction API (`RichMessageBuilder`)
+- Direct client and message reply routing (`Client::sendRichMessage`, `Message::reply(InputRichMessage)`)
+
 *Telegram MTProto API Layer 225 Support*
 - Fully aligned with Telegram MTProto Layer 225 specification (`TELEGRAM_API_LAYER = 225`)
 - `invokeWithLayer#da9b0d0d` envelope framing and parsing (`TLWriter::write_invoke_with_layer`, `TLReader::read_invoke_with_layer`)
@@ -497,6 +508,7 @@ cppgram/
 │   ├── coro.hpp            # C++20 coroutine Task<T> & sync_wait
 │   ├── tl.hpp              # Binary Type Language (TL) Codec (TLWriter, TLReader)
 │   ├── mtproto_client.hpp  # Standalone Native MTProto Network Client
+│   ├── rich_message.hpp    # Bot API 10.3 Rich Messages, Rich Text & Builder
 │   ├── obfuscated.hpp      # MTProto Obfuscated Codec & Fake-TLS Handshake
 │   ├── account_pool.hpp    # Multi-account session pool orchestrator
 │   ├── metrics.hpp         # Real-time telemetry & Prometheus metrics exporter
@@ -535,6 +547,7 @@ cppgram/
 │   │   ├── td_conversions.hpp
 │   │   └── log.cpp
 │   └── core/
+│       ├── rich_message.cpp # Bot API 10.3 Rich Message builder & block rendering
 │       ├── tl.cpp          # Type Language binary serialization implementation
 │       ├── mtproto_client.cpp # Native MTProto client engine implementation
 │       ├── obfuscated.cpp  # Obfuscated transport codec & Fake-TLS implementation
@@ -550,7 +563,7 @@ cppgram/
 │       ├── plugin.cpp      # PluginManager lifecycle implementation
 │       └── transport.cpp   # MTProto transport codecs (Abridged, Intermediate, Full)
 ├── tests/
-│   └── phase1_smoke.cpp    # Test suite covering v0.1..v1.1 & Layer 225 (80 tests)
+│   └── phase1_smoke.cpp    # Test suite covering v0.1..v1.1, Layer 225 & Bot API 10.3 (90 tests)
 ├── benchmarks/
 │   ├── CMakeLists.txt      # Benchmarks build definition
 │   └── engine_bench.cpp    # Performance benchmarks (AES-IGE, framing codecs, TL)
@@ -563,6 +576,7 @@ cppgram/
 │   ├── v10_features_demo.cpp # Showcase of v1.0 features (TL Codecs, Native MTProto Client)
 │   ├── v11_features_demo.cpp # Showcase of v1.1 features (Obfuscation, Fake-TLS, Pool, Metrics)
 │   ├── layer225_demo.cpp   # Showcase of Telegram API Layer 225 features
+│   ├── bot_api_10_3_rich_demo.cpp # Showcase of Telegram Bot API 10.3 Rich Messages
 │   └── interactive_cli.cpp # Interactive REPL shell application
 └── CMakeLists.txt
 ```
