@@ -59,6 +59,8 @@ public:
                                          const SendMessageOptions& options) = 0;
     virtual Message sendRichMessage(ChatId chat_id, const InputRichMessage& rich_msg,
                                     const SendRichMessageOptions& options) = 0;
+    virtual void editRichMessage(ChatId chat_id, MessageId msg_id, const InputRichMessage& rich_msg,
+                                 const SendRichMessageOptions& options = {}) = 0;
     virtual bool sendRichMessageDraft(ChatId chat_id, int64_t draft_id,
                                       const InputRichMessage& rich_msg,
                                       bool can_stop, bool keep_on_stop) = 0;

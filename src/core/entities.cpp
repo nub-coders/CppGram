@@ -75,6 +75,10 @@ void Message::edit(const std::string& body, ParseMode parse_mode) {
     if (auto c = _client.lock()) c->editMessage(chat_id, id, body, parse_mode);
 }
 
+void Message::edit(const InputRichMessage& rich_msg) {
+    if (auto c = _client.lock()) c->editRichMessage(chat_id, id, rich_msg, {});
+}
+
 void Message::editCaption(const std::string& new_caption) {
     if (auto c = _client.lock()) c->editMessageCaption(chat_id, id, new_caption);
 }

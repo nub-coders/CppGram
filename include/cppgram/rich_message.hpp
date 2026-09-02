@@ -143,7 +143,58 @@ struct RichBlockTableCell {
     int colspan{1};
     int rowspan{1};
     std::string align{"left"};  // "left", "center", "right"
-    std::string valign{"top"};  // "top", "middle", "bottom"
+    std::string valign{"middle"};  // "top", "middle", "bottom"
+    bool is_bold{false};
+    bool is_code{false};
+    std::optional<RichMessageButton> button;
+    std::optional<std::string> custom_emoji_id;
+
+    static RichBlockTableCell make_header(std::string text, std::string align = "center") {
+        RichBlockTableCell c;
+        c.text = std::move(text);
+        c.is_header = true;
+        c.align = std::move(align);
+        return c;
+    }
+
+    static RichBlockTableCell make_text(std::string text, std::string align = "left") {
+        RichBlockTableCell c;
+        c.text = std::move(text);
+        c.align = std::move(align);
+        return c;
+    }
+
+    static RichBlockTableCell make_bold(std::string text, std::string align = "left") {
+        RichBlockTableCell c;
+        c.text = std::move(text);
+        c.is_bold = true;
+        c.align = std::move(align);
+        return c;
+    }
+
+    static RichBlockTableCell make_code(std::string text, std::string align = "center") {
+        RichBlockTableCell c;
+        c.text = std::move(text);
+        c.is_code = true;
+        c.align = std::move(align);
+        return c;
+    }
+
+    static RichBlockTableCell make_button(RichMessageButton btn, std::string align = "center") {
+        RichBlockTableCell c;
+        c.text = btn.text;
+        c.button = std::move(btn);
+        c.align = std::move(align);
+        return c;
+    }
+
+    static RichBlockTableCell make_custom_emoji(std::string emoji, std::string emoji_id, std::string align = "center") {
+        RichBlockTableCell c;
+        c.text = std::move(emoji);
+        c.custom_emoji_id = std::move(emoji_id);
+        c.align = std::move(align);
+        return c;
+    }
 };
 
 struct RichBlockTable {
@@ -152,7 +203,39 @@ struct RichBlockTable {
     bool is_striped{false};
     bool is_compact{false}; // Bot API 10.3
     std::optional<std::string> caption;
+
+    RichBlockTable& addRow(std::vector<RichBlockTableCell> row) {
+        cells.push_back(std::move(row));
+        return *this;
+    }
+
+    RichBlockTable& setCompact(bool compact) {
+        is_compact = compact;
+        return *this;
+    }
+
+    RichBlockTable& setBordered(bool bordered) {
+        is_bordered = bordered;
+        return *this;
+    }
+
+    RichBlockTable& setStriped(bool striped) {
+        is_striped = striped;
+        return *this;
+    }
+
+    RichBlockTable& setCaption(std::string cap) {
+        caption = std::move(cap);
+        return *this;
+    }
 };
+
+/**
+ * @brief Constructs a Telegram Bot API HTML custom emoji tag.
+ */
+inline std::string custom_emoji_html(const std::string& emoji, const std::string& emoji_id) {
+    return "<tg-emoji emoji-id=\"" + emoji_id + "\">" + emoji + "</tg-emoji>";
+}
 
 struct RichBlockExpandableBlockQuotation { // Bot API 10.3
     std::string text;
@@ -252,6 +335,11 @@ struct InputRichMessage {
         return msg;
     }
 };
+
+/**
+ * @brief Serializes an InputRichMessage into Telegram Bot API 10.3 JSON format.
+ */
+std::string serialize_rich_message_json(const InputRichMessage& msg);
 
 /**
  * @brief Received or processed rich formatted message.

@@ -56,6 +56,7 @@ find_package(OpenSSL REQUIRED)
 find_package(ZLIB    REQUIRED)
 
 find_package(SQLite3 QUIET)
+find_package(CURL REQUIRED)
 
 # ---- Core library ----------------------------------------------------------
 add_library(cppgram)
@@ -88,7 +89,8 @@ target_sources(cppgram PRIVATE
 target_link_libraries(cppgram
     PUBLIC  Threads::Threads
     PRIVATE Td::TdStatic
-            OpenSSL::Crypto)
+            OpenSSL::Crypto
+            CURL::libcurl)
 
 target_compile_definitions(cppgram PRIVATE CPPGRAM_HAVE_TDLIB=1)
 

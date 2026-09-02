@@ -67,6 +67,7 @@ public:
     Message reply_in_thread(const std::string& body, ParseMode parse_mode);
     void    edit(const std::string& body);
     void    edit(const std::string& body, ParseMode parse_mode);
+    void    edit(const InputRichMessage& rich_msg);
     void    editCaption(const std::string& new_caption);
     void    editCaption(const std::string& new_caption, ParseMode parse_mode);
     void    editReplyMarkup(const InlineKeyboard& markup);

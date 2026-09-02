@@ -2030,6 +2030,88 @@ int main() {
         assert(reply_result.id == 0); // No active client connected in mock mode
     }
 
-    std::cout << "All 90 smoke tests passed (including v0.1..v1.1, Layer 225, and Bot API 10.3 Rich Messages).\n";
+    // ---- 91. RichBlockTable with Cell Buttons & Custom Emoji (Bot API 10.3) ----
+    {
+        RichBlockTable table;
+        table.setBordered(true).setCompact(true).setStriped(true).setCaption("Telemetry Metrics");
+        assert(table.is_bordered);
+        assert(table.is_compact);
+        assert(table.is_striped);
+        assert(table.caption.value() == "Telemetry Metrics");
+
+        table.addRow({
+            RichBlockTableCell::make_header("Metric"),
+            RichBlockTableCell::make_header("Value"),
+            RichBlockTableCell::make_header("Action")
+        });
+
+        table.addRow({
+            RichBlockTableCell::make_bold("Latency"),
+            RichBlockTableCell::make_code("14ms"),
+            RichBlockTableCell::make_button(RichMessageButton::make_callback("Ping", "btn_ping"))
+        });
+
+        table.addRow({
+            RichBlockTableCell::make_bold("Emoji"),
+            RichBlockTableCell::make_custom_emoji("🔥", "5368324170671202286"),
+            RichBlockTableCell::make_button(RichMessageButton::make_url("Docs", "https://t.me"))
+        });
+
+        assert(table.cells.size() == 3);
+        assert(table.cells[0].size() == 3);
+        assert(table.cells[0][0].is_header);
+        assert(table.cells[1][0].is_bold);
+        assert(table.cells[1][1].is_code);
+        assert(table.cells[1][2].button.has_value());
+        assert(table.cells[1][2].button->callback_data.value() == "btn_ping");
+        assert(table.cells[2][1].custom_emoji_id.value() == "5368324170671202286");
+    }
+
+    // ---- 92. RichBlockButtons & RichMessageButton (Bot API 10.3) ----
+    {
+        RichBlockButtons btns;
+        btns.align = "center";
+        btns.buttons.push_back(RichMessageButton::make_callback("Click Me", "cb_click", "primary"));
+        btns.buttons.push_back(RichMessageButton::make_url("Visit", "https://github.com", "link"));
+        btns.buttons.push_back(RichMessageButton::make_copy("Copy Code", "ABC-123", "secondary"));
+
+        assert(btns.align == "center");
+        assert(btns.buttons.size() == 3);
+        assert(btns.buttons[0].callback_data.value() == "cb_click");
+        assert(btns.buttons[1].url.value() == "https://github.com");
+        assert(btns.buttons[2].copy_text.value() == "ABC-123");
+    }
+
+    // ---- 93. serialize_rich_message_json Schema Verification (Bot API 10.3) ----
+    {
+        RichBlockTable table;
+        table.is_bordered = true;
+        table.is_compact = true;
+        table.addRow({
+            RichBlockTableCell::make_button(RichMessageButton::make_callback("Test Btn", "cb_test")),
+            RichBlockTableCell::make_custom_emoji("⭐", "5429443209564551275")
+        });
+
+        auto rich_msg = RichMessageBuilder()
+            .heading("Live Report")
+            .paragraph("System online")
+            .table(table)
+            .buttons({RichMessageButton::make_callback("Block Button", "cb_block")}, "center")
+            .build();
+
+        std::string json_str = serialize_rich_message_json(rich_msg);
+        assert(json_str.find("\"type\":\"heading\"") != std::string::npos);
+        assert(json_str.find("\"type\":\"paragraph\"") != std::string::npos);
+        assert(json_str.find("\"type\":\"table\"") != std::string::npos);
+        assert(json_str.find("\"is_compact\":true") != std::string::npos);
+        assert(json_str.find("\"type\":\"button\"") != std::string::npos);
+        assert(json_str.find("\"callback_data\":\"cb_test\"") != std::string::npos);
+        assert(json_str.find("\"type\":\"custom_emoji\"") != std::string::npos);
+        assert(json_str.find("\"custom_emoji_id\":\"5429443209564551275\"") != std::string::npos);
+        assert(json_str.find("\"type\":\"buttons\"") != std::string::npos);
+        assert(json_str.find("\"callback_data\":\"cb_block\"") != std::string::npos);
+    }
+
+    std::cout << "All 93 smoke tests passed (including v0.1..v1.1, Layer 225, and Bot API 10.3 Rich Messages).\n";
     return 0;
 }

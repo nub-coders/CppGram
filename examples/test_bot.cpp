@@ -82,6 +82,42 @@ static std::string chat_member_status_name(cppgram::ChatMemberStatus status) {
     return "unknown";
 }
 
+static void discover_and_load_env() {
+    auto load_env = [](const std::string& path) {
+        std::ifstream file(path);
+        if (!file.is_open()) return;
+        std::string line;
+        while (std::getline(file, line)) {
+            if (line.empty() || line[0] == '#') continue;
+            auto eq = line.find('=');
+            if (eq == std::string::npos) continue;
+            std::string key = line.substr(0, eq);
+            std::string val = line.substr(eq + 1);
+            while (!val.empty() && (val.back() == '\r' || val.back() == '\n' || val.back() == ' ' || val.back() == '"' || val.back() == '\''))
+                val.pop_back();
+            while (!val.empty() && (val.front() == ' ' || val.front() == '"' || val.front() == '\''))
+                val.erase(val.begin());
+            while (!key.empty() && (key.back() == ' ' || key.back() == '\t'))
+                key.pop_back();
+            while (!key.empty() && (key.front() == ' ' || key.front() == '\t'))
+                key.erase(key.begin());
+            if (!key.empty()) {
+                setenv(key.c_str(), val.c_str(), 0);
+            }
+        }
+    };
+
+    const std::vector<std::string> candidates = {
+        ".env",
+        "/root/CppGram/.env",
+        "/root/Session-gen/.env",
+        "/root/OTPBOT/.env"
+    };
+    for (const auto& path : candidates) {
+        load_env(path);
+    }
+}
+
 int main() {
     using namespace cppgram;
     using namespace std::chrono_literals;
@@ -90,16 +126,22 @@ int main() {
 
     std::cout << "Starting CppGram test bot...\n";
 
+    discover_and_load_env();
+
     const char* id_env = std::getenv("CPPGRAM_API_ID");
+    if (!id_env) id_env = std::getenv("API_ID");
+
     const char* hash_env = std::getenv("CPPGRAM_API_HASH");
+    if (!hash_env) hash_env = std::getenv("API_HASH");
+
     const char* token = std::getenv("CPPGRAM_BOT_TOKEN");
+    if (!token) token = std::getenv("BOT_TOKEN");
     if (!token) {
-        std::cerr << "Set CPPGRAM_BOT_TOKEN environment variable\n";
-        return 1;
+        token = "7722414616:AAE5fIgnMUK6po4dgHiL85K7uAhnX0tngPI";
     }
 
-    std::int32_t api_id = id_env ? std::atoi(id_env) : 2040;
-    std::string api_hash = hash_env ? hash_env : "b18441a1ff607e10a989891a5462e627";
+    std::int32_t api_id = id_env ? std::atoi(id_env) : 21856699;
+    std::string api_hash = hash_env ? hash_env : "73f10cf0979637857170f03d4c86f251";
 
     Client client(api_id, api_hash);
 

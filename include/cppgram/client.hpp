@@ -131,6 +131,8 @@ public:
                                  const SendMessageOptions& options = {});
     Message sendRichMessage(ChatId chat_id, const InputRichMessage& rich_msg,
                             const SendRichMessageOptions& options = {});
+    void    editRichMessage(ChatId chat_id, MessageId msg_id, const InputRichMessage& rich_msg,
+                            const SendRichMessageOptions& options = {});
     bool    sendRichMessageDraft(ChatId chat_id, int64_t draft_id,
                                  const InputRichMessage& rich_msg,
                                  bool can_stop = false, bool keep_on_stop = false);
@@ -306,6 +308,8 @@ public:
                                                 const SendMessageOptions& options = {},
                                                 std::optional<MessageId> reply_to = std::nullopt);
     Task<Message>              asyncSendRichMessage(ChatId chat_id, const InputRichMessage& rich_msg,
+                                                    const SendRichMessageOptions& options = {});
+    Task<void>                 asyncEditRichMessage(ChatId chat_id, MessageId msg_id, const InputRichMessage& rich_msg,
                                                     const SendRichMessageOptions& options = {});
     Task<bool>                 asyncSendRichMessageDraft(ChatId chat_id, int64_t draft_id,
                                                          const InputRichMessage& rich_msg,

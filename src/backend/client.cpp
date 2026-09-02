@@ -21,10 +21,96 @@
 #include <unordered_map>
 #include <deque>
 #include <vector>
+#include <curl/curl.h>
 
 namespace cppgram {
 
 namespace td_api = td::td_api;
+
+namespace {
+std::string http_post_json(const std::string& url, const std::string& json_payload) {
+    CURL* curl = curl_easy_init();
+    if (!curl) return {};
+
+    std::string response;
+    struct curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_payload.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(json_payload.size()));
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+
+    auto write_cb = +[](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
+        auto* str = static_cast<std::string*>(userdata);
+        str->append(ptr, size * nmemb);
+        return size * nmemb;
+    };
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+    CURLcode res = curl_easy_perform(curl);
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+
+    if (res != CURLE_OK) {
+        return {};
+    }
+    return response;
+}
+
+std::string escape_json_string(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 16);
+    for (char c : s) {
+        switch (c) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    out += buf;
+                } else {
+                    out += c;
+                }
+                break;
+        }
+    }
+    return out;
+}
+
+std::string reply_markup_to_json(const cppgram::ReplyMarkup& markup) {
+    if (auto* ik = std::get_if<cppgram::InlineKeyboard>(&markup)) {
+        std::string json = "{\"inline_keyboard\":[";
+        for (size_t r = 0; r < ik->rows.size(); ++r) {
+            if (r > 0) json += ",";
+            json += "[";
+            for (size_t b = 0; b < ik->rows[r].size(); ++b) {
+                if (b > 0) json += ",";
+                const auto& btn = ik->rows[r][b];
+                json += "{\"text\":\"" + escape_json_string(btn.text) + "\"";
+                if (!btn.callback_data.empty()) {
+                    json += ",\"callback_data\":\"" + escape_json_string(btn.callback_data) + "\"";
+                } else if (!btn.url.empty()) {
+                    json += ",\"url\":\"" + escape_json_string(btn.url) + "\"";
+                }
+                json += "}";
+            }
+            json += "]";
+        }
+        json += "]}";
+        return json;
+    }
+    return {};
+}
+} // namespace
 
 // ---------------------------------------------------------------------------
 // ClientImpl
@@ -34,6 +120,7 @@ class ClientImpl : public IBackend,
 public:
     ApiCredentials creds;
     detail::TdLibAdapter td;
+    std::string bot_token_;
 
     std::atomic<AuthState> auth_state{AuthState::None};
     std::atomic<bool> event_loop_running{false};
@@ -669,6 +756,35 @@ public:
                         ParseMode parse_mode,
                         const SendMessageOptions& options) override {
         auto pm = parse_mode == ParseMode::None ? default_parse_mode_.load() : parse_mode;
+        if (!bot_token_.empty() && (pm == ParseMode::HTML || pm == ParseMode::Markdown || pm == ParseMode::MarkdownV2)) {
+            std::string pm_str = (pm == ParseMode::HTML) ? "HTML" : (pm == ParseMode::Markdown ? "Markdown" : "MarkdownV2");
+            std::string url = "https://api.telegram.org/bot" + bot_token_ + "/sendMessage";
+            std::string payload = "{\"chat_id\":" + std::to_string(chat_id) +
+                                  ",\"text\":\"" + escape_json_string(text) + "\"" +
+                                  ",\"parse_mode\":\"" + pm_str + "\"";
+            if (reply_to.has_value()) {
+                payload += ",\"reply_parameters\":{\"message_id\":" + std::to_string(*reply_to) + "}";
+            }
+            if (options.disable_notification) payload += ",\"disable_notification\":true";
+            if (options.protect_content) payload += ",\"protect_content\":true";
+            payload += "}";
+            std::string resp = http_post_json(url, payload);
+            if (!resp.empty() && resp.find("\"ok\":true") != std::string::npos) {
+                CPPGRAM_INFO("client", "sendMessage: sent via Bot API HTTP chat={}", chat_id);
+                Message msg;
+                msg.chat_id = chat_id;
+                msg.text = text;
+                msg.date = std::chrono::system_clock::now();
+                auto id_pos = resp.find("\"message_id\":");
+                if (id_pos != std::string::npos) {
+                    msg.id = std::stoll(resp.substr(id_pos + 13));
+                }
+                msg._client = shared_from_this();
+                return msg;
+            }
+            CPPGRAM_WARN("client", "sendMessage: HTTP call failed ({}), falling back to TDLib", resp);
+        }
+
         auto content = td_api::make_object<td_api::inputMessageText>();
         content->text_ = detail::parse_text(text, pm);
         CPPGRAM_INFO("client", "sendMessage chat={}", chat_id);
@@ -689,6 +805,39 @@ public:
                                    ParseMode parse_mode,
                                    const SendMessageOptions& options) override {
         auto pm = parse_mode == ParseMode::None ? default_parse_mode_.load() : parse_mode;
+        if (!bot_token_.empty() && (pm == ParseMode::HTML || pm == ParseMode::Markdown || pm == ParseMode::MarkdownV2)) {
+            std::string pm_str = (pm == ParseMode::HTML) ? "HTML" : (pm == ParseMode::Markdown ? "Markdown" : "MarkdownV2");
+            std::string url = "https://api.telegram.org/bot" + bot_token_ + "/sendMessage";
+            std::string payload = "{\"chat_id\":" + std::to_string(chat_id) +
+                                  ",\"text\":\"" + escape_json_string(text) + "\"" +
+                                  ",\"parse_mode\":\"" + pm_str + "\"";
+            if (reply_to.has_value()) {
+                payload += ",\"reply_parameters\":{\"message_id\":" + std::to_string(*reply_to) + "}";
+            }
+            if (options.disable_notification) payload += ",\"disable_notification\":true";
+            if (options.protect_content) payload += ",\"protect_content\":true";
+            std::string markup_json = reply_markup_to_json(markup);
+            if (!markup_json.empty()) {
+                payload += ",\"reply_markup\":" + markup_json;
+            }
+            payload += "}";
+            std::string resp = http_post_json(url, payload);
+            if (!resp.empty() && resp.find("\"ok\":true") != std::string::npos) {
+                CPPGRAM_INFO("client", "sendMessageWithMarkup: sent via Bot API HTTP chat={}", chat_id);
+                Message msg;
+                msg.chat_id = chat_id;
+                msg.text = text;
+                msg.date = std::chrono::system_clock::now();
+                auto id_pos = resp.find("\"message_id\":");
+                if (id_pos != std::string::npos) {
+                    msg.id = std::stoll(resp.substr(id_pos + 13));
+                }
+                msg._client = shared_from_this();
+                return msg;
+            }
+            CPPGRAM_WARN("client", "sendMessageWithMarkup: HTTP call failed ({}), falling back to TDLib", resp);
+        }
+
         auto content = td_api::make_object<td_api::inputMessageText>();
         content->text_ = detail::parse_text(text, pm);
         return send_content(chat_id, std::move(content), reply_to,
@@ -710,73 +859,155 @@ public:
                             options.message_thread_id.value_or(0));
     }
 
-    Message sendRichMessage(ChatId chat_id, const InputRichMessage& rich_msg,
-                            const SendRichMessageOptions& options) override {
+    std::pair<td_api::object_ptr<td_api::inputMessageText>, td_api::object_ptr<td_api::ReplyMarkup>>
+    render_rich_message_tdlib(const InputRichMessage& rich_msg,
+                              const SendRichMessageOptions& options) {
         auto content = td_api::make_object<td_api::inputMessageText>();
+        std::optional<InlineKeyboard> synthetic_keyboard;
+
         if (rich_msg.html) {
             content->text_ = detail::parse_text(*rich_msg.html, ParseMode::HTML);
         } else if (rich_msg.markdown) {
             content->text_ = detail::parse_text(*rich_msg.markdown, ParseMode::MarkdownV2);
         } else {
+            auto escape_html = [](const std::string& s) {
+                std::string out;
+                out.reserve(s.size());
+                for (char c : s) {
+                    switch (c) {
+                        case '&': out += "&amp;"; break;
+                        case '<': out += "&lt;"; break;
+                        case '>': out += "&gt;"; break;
+                        case '"': out += "&quot;"; break;
+                        default:  out += c; break;
+                    }
+                }
+                return out;
+            };
+
             std::string rendered;
             for (const auto& block : rich_msg.blocks) {
                 switch (block.type) {
                     case RichBlockType::SectionHeading:
                         if (auto* p = std::get_if<RichBlockSectionHeading>(&block.payload)) {
-                            rendered += "# " + p->text + "\n\n";
+                            rendered += "<b>" + escape_html(p->text) + "</b>\n\n";
                         }
                         break;
                     case RichBlockType::Paragraph:
                         if (auto* p = std::get_if<RichBlockParagraph>(&block.payload)) {
-                            rendered += p->text + "\n\n";
+                            rendered += escape_html(p->text) + "\n\n";
                         }
                         break;
                     case RichBlockType::Preformatted:
                         if (auto* p = std::get_if<RichBlockPreformatted>(&block.payload)) {
-                            rendered += "```" + p->language + "\n" + p->text + "\n```\n\n";
+                            if (p->language.empty()) {
+                                rendered += "<pre>" + escape_html(p->text) + "</pre>\n\n";
+                            } else {
+                                rendered += "<pre><code class=\"language-" + escape_html(p->language) + "\">" + escape_html(p->text) + "</code></pre>\n\n";
+                            }
                         }
                         break;
                     case RichBlockType::Divider:
-                        rendered += "---\n\n";
+                        rendered += "─────────────────────────\n\n";
                         break;
                     case RichBlockType::Table:
                         if (auto* p = std::get_if<RichBlockTable>(&block.payload)) {
-                            for (const auto& row : p->cells) {
-                                rendered += "|";
-                                for (const auto& cell : row) {
-                                    rendered += " " + cell.text + " |";
+                            if (!p->cells.empty()) {
+                                std::vector<size_t> col_widths;
+                                for (const auto& row : p->cells) {
+                                    if (row.size() > col_widths.size()) col_widths.resize(row.size(), 0);
+                                    for (size_t col = 0; col < row.size(); ++col) {
+                                        col_widths[col] = std::max(col_widths[col], row[col].text.size());
+                                    }
                                 }
+                                std::string table_str;
+                                for (size_t r = 0; r < p->cells.size(); ++r) {
+                                    const auto& row = p->cells[r];
+                                    table_str += "|";
+                                    for (size_t c = 0; c < row.size(); ++c) {
+                                        table_str += " " + row[c].text;
+                                        if (row[c].text.size() < col_widths[c]) {
+                                            table_str += std::string(col_widths[c] - row[c].text.size(), ' ');
+                                        }
+                                        table_str += " |";
+                                    }
+                                    table_str += "\n";
+                                    if (r == 0 && p->cells.size() > 1) {
+                                        table_str += "|";
+                                        for (size_t c = 0; c < row.size(); ++c) {
+                                            table_str += std::string(col_widths[c] + 2, '-');
+                                            table_str += "|";
+                                        }
+                                        table_str += "\n";
+                                    }
+                                }
+                                rendered += "<pre>" + escape_html(table_str) + "</pre>\n";
+
+                                // Extract any cell buttons into keyboard
+                                for (const auto& row : p->cells) {
+                                    InlineKeyboardRow btn_row;
+                                    for (const auto& cell : row) {
+                                        if (cell.button.has_value()) {
+                                            const auto& btn = *cell.button;
+                                            if (btn.url) {
+                                                btn_row.push_back(InlineKeyboardButton::link(btn.text, *btn.url));
+                                            } else if (btn.callback_data) {
+                                                btn_row.push_back(InlineKeyboardButton::callback(btn.text, *btn.callback_data));
+                                            } else {
+                                                btn_row.push_back(InlineKeyboardButton::callback(btn.text, btn.text));
+                                            }
+                                        }
+                                    }
+                                    if (!btn_row.empty()) {
+                                        if (!synthetic_keyboard.has_value()) {
+                                            synthetic_keyboard = InlineKeyboard{};
+                                        }
+                                        synthetic_keyboard->addRow(btn_row);
+                                    }
+                                }
+                            }
+                            if (p->caption) {
+                                rendered += "<i>" + escape_html(*p->caption) + "</i>\n\n";
+                            } else {
                                 rendered += "\n";
                             }
-                            if (p->caption) rendered += "*" + *p->caption + "*\n";
-                            rendered += "\n";
                         }
                         break;
                     case RichBlockType::ExpandableBlockQuotation:
                         if (auto* p = std::get_if<RichBlockExpandableBlockQuotation>(&block.payload)) {
-                            rendered += "> " + p->text + "\n";
-                            if (p->credit) rendered += "> — " + *p->credit + "\n";
+                            rendered += "<i>“" + escape_html(p->text) + "”</i>\n";
+                            if (p->credit) rendered += "— <b>" + escape_html(*p->credit) + "</b>\n";
                             rendered += "\n";
                         }
                         break;
                     case RichBlockType::Buttons:
                         if (auto* p = std::get_if<RichBlockButtons>(&block.payload)) {
-                            for (const auto& btn : p->buttons) {
-                                rendered += "[" + btn.text + "] ";
+                            if (!synthetic_keyboard.has_value()) {
+                                synthetic_keyboard = InlineKeyboard{};
                             }
-                            rendered += "\n\n";
+                            InlineKeyboardRow row;
+                            for (const auto& btn : p->buttons) {
+                                if (btn.url) {
+                                    row.push_back(InlineKeyboardButton::link(btn.text, *btn.url));
+                                } else if (btn.callback_data) {
+                                    row.push_back(InlineKeyboardButton::callback(btn.text, *btn.callback_data));
+                                } else {
+                                    row.push_back(InlineKeyboardButton::callback(btn.text, btn.text));
+                                }
+                            }
+                            if (!row.empty()) {
+                                synthetic_keyboard->addRow(row);
+                            }
                         }
                         break;
                     case RichBlockType::Document:
                         if (auto* p = std::get_if<RichBlockDocument>(&block.payload)) {
-                            rendered += "📎 " + p->document + "\n";
-                            if (p->caption) rendered += p->caption.value() + "\n";
-                            rendered += "\n";
+                            rendered += "📄 <b>" + escape_html(p->caption.value_or("Document")) + "</b>\n\n";
                         }
                         break;
                     case RichBlockType::Thinking:
                         if (auto* p = std::get_if<RichBlockThinking>(&block.payload)) {
-                            rendered += "[Thinking: " + p->text + "]\n\n";
+                            rendered += "🧠 <i>[Thinking: " + escape_html(p->text) + "]</i>\n\n";
                         }
                         break;
                     default:
@@ -784,21 +1015,77 @@ public:
                 }
             }
             if (!rendered.empty() && rendered.back() == '\n') rendered.pop_back();
-            content->text_ = detail::parse_text(rendered, ParseMode::MarkdownV2);
+            content->text_ = detail::parse_text(rendered, ParseMode::HTML);
         }
 
+        td_api::object_ptr<td_api::ReplyMarkup> rm = nullptr;
+        if (options.reply_markup) {
+            rm = detail::build_reply_markup(*options.reply_markup);
+        } else if (synthetic_keyboard.has_value() && !synthetic_keyboard->rows.empty()) {
+            rm = detail::build_reply_markup(*synthetic_keyboard);
+        }
+
+        return {std::move(content), std::move(rm)};
+    }
+
+    Message sendRichMessage(ChatId chat_id, const InputRichMessage& rich_msg,
+                            const SendRichMessageOptions& options) override {
+        if (!bot_token_.empty()) {
+            std::string rich_json = serialize_rich_message_json(rich_msg);
+            std::string url = "https://api.telegram.org/bot" + bot_token_ + "/sendRichMessage";
+            std::string payload = "{\"chat_id\":" + std::to_string(chat_id) + ",\"rich_message\":" + rich_json + "}";
+            std::string resp = http_post_json(url, payload);
+            if (!resp.empty() && resp.find("\"ok\":true") != std::string::npos) {
+                CPPGRAM_INFO("rich", "sendRichMessage: sent via Bot API HTTP");
+                Message msg;
+                msg.chat_id = chat_id;
+                msg.date = std::chrono::system_clock::now();
+                auto id_pos = resp.find("\"message_id\":");
+                if (id_pos != std::string::npos) {
+                    msg.id = std::stoll(resp.substr(id_pos + 13));
+                }
+                msg.rich_message = RichMessage{rich_msg.blocks, rich_msg.is_rtl};
+                msg._client = shared_from_this();
+                return msg;
+            }
+            CPPGRAM_WARN("rich", "sendRichMessage: HTTP call failed ({}), falling back to TDLib", resp);
+        }
+
+        auto [content, rm] = render_rich_message_tdlib(rich_msg, options);
         SendMessageOptions send_opts;
         send_opts.disable_notification = options.disable_notification;
         send_opts.protect_content = options.protect_content;
         send_opts.message_thread_id = options.message_thread_id;
 
-        td_api::object_ptr<td_api::ReplyMarkup> rm = options.reply_markup ? detail::build_reply_markup(*options.reply_markup) : nullptr;
         auto msg = send_content(chat_id, std::move(content), options.reply_to,
                                 std::move(rm), "sendRichMessage",
                                 detail::convert_send_options(send_opts),
                                 options.message_thread_id.value_or(0));
         msg.rich_message = RichMessage{rich_msg.blocks, rich_msg.is_rtl};
         return msg;
+    }
+
+    void editRichMessage(ChatId chat_id, MessageId msg_id, const InputRichMessage& rich_msg,
+                         const SendRichMessageOptions& options) override {
+        if (!bot_token_.empty()) {
+            std::string rich_json = serialize_rich_message_json(rich_msg);
+            std::string url = "https://api.telegram.org/bot" + bot_token_ + "/editMessageText";
+            std::string payload = "{\"chat_id\":" + std::to_string(chat_id) +
+                                  ",\"message_id\":" + std::to_string(msg_id) +
+                                  ",\"rich_message\":" + rich_json + "}";
+            std::string resp = http_post_json(url, payload);
+            if (!resp.empty() && resp.find("\"ok\":true") != std::string::npos) {
+                CPPGRAM_INFO("rich", "editRichMessage: edited message {} via Bot API HTTP", msg_id);
+                return;
+            }
+            CPPGRAM_WARN("rich", "editRichMessage: HTTP call failed ({}), falling back to TDLib", resp);
+        }
+
+        auto [content, rm] = render_rich_message_tdlib(rich_msg, options);
+        auto result = td.send_sync(
+            td_api::make_object<td_api::editMessageText>(
+                chat_id, msg_id, std::move(rm), std::move(content)));
+        check_error(result, "editRichMessage");
     }
 
     bool sendRichMessageDraft(ChatId chat_id, int64_t draft_id,
@@ -849,6 +1136,21 @@ public:
     void editMessage(ChatId chat_id, MessageId msg_id,
                      const std::string& text, ParseMode parse_mode) override {
         auto pm = parse_mode == ParseMode::None ? default_parse_mode_.load() : parse_mode;
+        if (!bot_token_.empty() && (pm == ParseMode::HTML || pm == ParseMode::Markdown || pm == ParseMode::MarkdownV2)) {
+            std::string pm_str = (pm == ParseMode::HTML) ? "HTML" : (pm == ParseMode::Markdown ? "Markdown" : "MarkdownV2");
+            std::string url = "https://api.telegram.org/bot" + bot_token_ + "/editMessageText";
+            std::string payload = "{\"chat_id\":" + std::to_string(chat_id) +
+                                  ",\"message_id\":" + std::to_string(msg_id) +
+                                  ",\"text\":\"" + escape_json_string(text) + "\"" +
+                                  ",\"parse_mode\":\"" + pm_str + "\"}";
+            std::string resp = http_post_json(url, payload);
+            if (!resp.empty() && resp.find("\"ok\":true") != std::string::npos) {
+                CPPGRAM_INFO("client", "editMessage: edited message {} via Bot API HTTP", msg_id);
+                return;
+            }
+            CPPGRAM_WARN("client", "editMessage: HTTP call failed ({}), falling back to TDLib", resp);
+        }
+
         auto content = td_api::make_object<td_api::inputMessageText>();
         content->text_ = detail::parse_text(text, pm);
         auto result = td.send_sync(
@@ -1759,9 +2061,26 @@ std::vector<std::shared_ptr<IPlugin>> Client::plugins() const {
 void Client::login(const std::string& phone,
                    std::function<std::string()> code_callback,
                    std::function<std::string()> password_callback) {
+    if (impl_->auth_state.load() == AuthState::Ready) {
+        CPPGRAM_INFO("auth", "session already authenticated (Ready)");
+        return;
+    }
     impl_->code_callback_     = std::move(code_callback);
     impl_->password_callback_ = std::move(password_callback);
-    impl_->wait_for_auth(AuthState::WaitPhoneNumber);
+
+    {
+        std::unique_lock lk(impl_->auth_mtx_);
+        impl_->auth_cv_.wait(lk, [&] {
+            auto s = impl_->auth_state.load();
+            return s == AuthState::WaitPhoneNumber || s == AuthState::Ready || s == AuthState::Closed;
+        });
+        if (impl_->auth_state.load() == AuthState::Closed)
+            throw AuthenticationError("Authorization closed unexpectedly");
+        if (impl_->auth_state.load() == AuthState::Ready) {
+            CPPGRAM_INFO("auth", "session already authenticated (Ready)");
+            return;
+        }
+    }
 
     CPPGRAM_INFO("auth", "login requested for {}", phone);
     impl_->td.send(
@@ -1773,8 +2092,25 @@ void Client::login(const std::string& phone,
 }
 
 void Client::loginBot(const std::string& token) {
-    CPPGRAM_INFO("auth", "loginBot: waiting for authorization state WaitPhoneNumber");
-    impl_->wait_for_auth(AuthState::WaitPhoneNumber);
+    impl_->bot_token_ = token;
+    if (impl_->auth_state.load() == AuthState::Ready) {
+        CPPGRAM_INFO("auth", "bot session already authenticated (Ready)");
+        return;
+    }
+    CPPGRAM_INFO("auth", "loginBot: waiting for authorization state WaitPhoneNumber or Ready");
+    {
+        std::unique_lock lk(impl_->auth_mtx_);
+        impl_->auth_cv_.wait(lk, [&] {
+            auto s = impl_->auth_state.load();
+            return s == AuthState::WaitPhoneNumber || s == AuthState::Ready || s == AuthState::Closed;
+        });
+        if (impl_->auth_state.load() == AuthState::Closed)
+            throw AuthenticationError("Authorization closed unexpectedly");
+        if (impl_->auth_state.load() == AuthState::Ready) {
+            CPPGRAM_INFO("auth", "bot session already authenticated (Ready)");
+            return;
+        }
+    }
 
     CPPGRAM_INFO("auth", "bot login (token len={})", token.size());
     impl_->td.send(
@@ -1861,6 +2197,11 @@ Message Client::sendFormattedMessage(ChatId c, const FormattedText& t,
 Message Client::sendRichMessage(ChatId chat_id, const InputRichMessage& rich_msg,
                                 const SendRichMessageOptions& options) {
     return impl_->sendRichMessage(chat_id, rich_msg, options);
+}
+
+void Client::editRichMessage(ChatId chat_id, MessageId msg_id, const InputRichMessage& rich_msg,
+                             const SendRichMessageOptions& options) {
+    impl_->editRichMessage(chat_id, msg_id, rich_msg, options);
 }
 
 bool Client::sendRichMessageDraft(ChatId chat_id, int64_t draft_id,
@@ -2248,6 +2589,12 @@ Task<Message> Client::asyncSendMessage(ChatId chat_id, const std::string& text,
 Task<Message> Client::asyncSendRichMessage(ChatId chat_id, const InputRichMessage& rich_msg,
                                            const SendRichMessageOptions& options) {
     co_return sendRichMessage(chat_id, rich_msg, options);
+}
+
+Task<void> Client::asyncEditRichMessage(ChatId chat_id, MessageId msg_id, const InputRichMessage& rich_msg,
+                                       const SendRichMessageOptions& options) {
+    editRichMessage(chat_id, msg_id, rich_msg, options);
+    co_return;
 }
 
 Task<bool> Client::asyncSendRichMessageDraft(ChatId chat_id, int64_t draft_id,

@@ -8,11 +8,13 @@ lib/
 out/
 cmake-build-*/
 _deps/
+Testing/
 
 # Compiled Objects & Libraries
 *.o
 *.obj
 *.so
+*.so.*
 *.dylib
 *.dll
 *.a
@@ -29,41 +31,73 @@ cmake_install.cmake
 Makefile
 compile_commands.json
 CTestTestfile.cmake
+CMakeUserPresets.json
 
-# Secrets & Environment Variables
+# Secrets & Credentials
 .env
 .env.*
 *.key
 *.pem
 *.token
+*.cert
+*.crt
+credentials.json
 
-# Telegram / TDLib / Database State & Logs
+# Telegram / TDLib / Database State & Sessions
+cppgram_data/
+cppgram_data*/
+tdlib/
+tdlib_data/
+tdlib_db/
+td.binlog
+tdlib_log.txt
+*.session
+*.session-journal
+*.session.sqlite3
 *.db
+*.db-wal
+*.db-shm
+*.db-journal
 *.sqlite
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm
 *.sqlite3-journal
-td.binlog
-tdlib_log.txt
-tdlib/
 
 # Editor & IDE Configs
 .vscode/
 .idea/
+.clangd/
+.cache/
+.ccls-cache/
 *.swp
 *.swo
 *~
 .DS_Store
+.directory
+Thumbs.db
 .vs/
 *.user
 *.suo
+
+# Debug & Crash Dumps
+/core
+core.*
+vgcore.*
+*.dmp
+*.crash
+
+# Process & Lock Files
+*.pid
+*.lock
+
+# Logs & Temporary Files
+*.log
+*.tmp
+*.temp
+*.bak
 
 # Local AI Customizations & Rules
 .agents/
 AGENTS.md
 GEMINI.md
-
-# Logs & Temporary Files
-*.log
-*.tmp

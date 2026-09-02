@@ -32,6 +32,5 @@ target_link_libraries(layer225_demo PRIVATE CppGram::cppgram)
 add_executable(bot_api_10_3_rich_demo bot_api_10_3_rich_demo.cpp)
 target_link_libraries(bot_api_10_3_rich_demo PRIVATE CppGram::cppgram)
 
-
-
-
+add_executable(live_test_bot live_test_bot.cpp)
+target_link_libraries(live_test_bot PRIVATE CppGram::cppgram)
